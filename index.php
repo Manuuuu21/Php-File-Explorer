@@ -3,7 +3,7 @@
  * PHP File Explorer
  * Features: Login System, Recursive Search, 50GB Storage Monitor, Progress bar with Speed indicator, 
  * Cancel Upload, Sequential Upload (Unlimited files), Selection Counter, Media Player Modal, 
- * Custom UI Dialogs, Vanilla JS AJAX (No reloads).
+ * Custom UI Dialogs, Vanilla JS AJAX (No reloads), Folder Upload & Drag-and-Drop Support.
  */
 
 // Start output buffering to prevent "headers already sent" issues during redirection
@@ -75,7 +75,6 @@ ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
 // Increase limits for large file handling
-// Note: Some of these may be restricted by server master config
 @set_time_limit(0); 
 @ini_set('memory_limit', '1024M');
 @ini_set('max_execution_time', '0');
@@ -167,7 +166,7 @@ function sendJsonResponse($data) {
     exit;
 }
 
-// 1. UPLOAD HANDLER
+// 1. UPLOAD HANDLER (Supports individual files and folders)
 if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['upload'])) {
     $totalUsed = getDirectorySize($realBase);
     $newFilesSize = array_sum($_FILES['upload']['size']);
@@ -178,13 +177,27 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['up
 
     $files = $_FILES['upload'];
     $successCount = 0;
+    
+    // Check if we have a relative path for folder structure
+    $relativePath = $_POST['relativePath'] ?? '';
+
     for ($i = 0; $i < count($files['name']); $i++) {
         if ($files['error'][$i] === UPLOAD_ERR_OK) {
             $name = basename($files['name'][$i]);
-            $target = $currentDir . DIRECTORY_SEPARATOR . $name;
-            if (safePath($target, $realBase)) {
-                // For massive files, this move operation might take significant time
-                if (move_uploaded_file($files['tmp_name'][$i], $target)) {
+            
+            // If relativePath is provided, we need to ensure the directory exists
+            if (!empty($relativePath)) {
+                $targetFile = $currentDir . DIRECTORY_SEPARATOR . ltrim($relativePath, DIRECTORY_SEPARATOR);
+                $targetDir = dirname($targetFile);
+                if (!file_exists($targetDir)) {
+                    mkdir($targetDir, 0777, true);
+                }
+            } else {
+                $targetFile = $currentDir . DIRECTORY_SEPARATOR . $name;
+            }
+
+            if (safePath($targetFile, $realBase)) {
+                if (move_uploaded_file($files['tmp_name'][$i], $targetFile)) {
                     $successCount++;
                 }
             }
@@ -394,6 +407,13 @@ if ($isAjax) {
         .btn:hover { filter: brightness(1.1); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
+        /* Unified Upload Button Styles */
+        .upload-wrapper { position: relative; display: inline-block; }
+        .dropdown-menu { position: absolute; top: 100%; left: 0; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); z-index: 1500; display: none; min-width: 160px; margin-top: 4px; padding: 4px 0; }
+        .dropdown-menu.active { display: block; }
+        .dropdown-item { padding: 10px 16px; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; display: flex; align-items: center; gap: 8px; color: var(--text); }
+        .dropdown-item:hover { background: #f1f5f9; color: var(--primary); }
+
         .upload-controls { display: flex; align-items: flex-end; gap: 10px; width: 100%; margin-top: 15px; }
         .upload-status-group { display: none; flex-grow: 1; flex-direction: column; gap: 4px; }
         #uploadCountBadge { font-size: 0.8rem; font-weight: 700; color: var(--primary); }
@@ -412,8 +432,12 @@ if ($isAjax) {
 
         .file-grid { display: grid; grid-template-columns: 40px 1fr 150px 100px 100px 120px; align-items: center; border-bottom: 1px solid var(--border); }
         .file-grid-header { font-weight: 600; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px 8px 0 0; padding: 10px 0; font-size: 0.85rem; text-transform: uppercase; color: #64748b; }
-        .file-list { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; min-height: 100px; position: relative; }
         
+        .file-list { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; min-height: 100px; position: relative; }
+        .file-list.drag-over { background: #eff6ff; border: 2px dashed var(--primary); }
+        .drag-overlay-hint { display: none; position: absolute; top:0; left:0; width:100%; height:100%; pointer-events: none; align-items: center; justify-content: center; background: rgba(37, 99, 235, 0.05); z-index: 10; font-weight: bold; color: var(--primary); }
+        .file-list.drag-over .drag-overlay-hint { display: flex; }
+
         .loading-overlay { display: none; position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.7); z-index: 5; align-items: center; justify-content: center; font-weight: bold; color: var(--primary); }
 
         .file-item { padding: 12px 0; transition: background 0.1s; font-size: 0.9rem; user-select: none; cursor: default; }
@@ -473,8 +497,19 @@ if ($isAjax) {
 
     <div class="toolbar">
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <input type="file" id="uploadInput" multiple style="display: none" onchange="uploadFiles()">
-            <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📤 Upload</button>
+            <!-- Single Upload Dropdown -->
+            <div class="upload-wrapper">
+                <button id="uploadDropdownBtn" class="btn btn-primary" onclick="toggleUploadDropdown()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📤 Upload ▼</button>
+                <div id="uploadDropdownMenu" class="dropdown-menu">
+                    <div class="dropdown-item" onclick="document.getElementById('uploadInput').click()">📄 Upload Files</div>
+                    <div class="dropdown-item" onclick="document.getElementById('folderUploadInput').click()">📁 Upload Folder</div>
+                </div>
+            </div>
+
+            <!-- Hidden Inputs -->
+            <input type="file" id="uploadInput" multiple style="display: none" onchange="uploadItems('file')">
+            <input type="file" id="folderUploadInput" webkitdirectory mozdirectory style="display: none" onchange="uploadItems('folder')">
+            
             <button class="btn btn-outline" onclick="openFolderModal()">🆕 New Folder</button>
             <button class="btn btn-danger" id="bulkDeleteBtn" disabled onclick="submitBulkDelete()">🗑️ Delete</button>
         </div>
@@ -517,8 +552,10 @@ if ($isAjax) {
             <div class="col" style="text-align:right">Actions</div>
         </div>
         
-        <div class="file-list" id="explorerBody">
+        <!-- File list acts as Drop Zone -->
+        <div class="file-list" id="explorerBody" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
             <div class="loading-overlay" id="loadingOverlay">🔄 Loading...</div>
+            <div class="drag-overlay-hint">🚀 Drop files or folders here to upload</div>
             <div id="fileListContent">
                 <!-- Rendered by JS -->
             </div>
@@ -526,7 +563,7 @@ if ($isAjax) {
     </form>
 </div>
 
-<!-- Modals -->
+<!-- Modals & Context Menus -->
 <div id="folderModal" class="modal">
     <div class="modal-content" style="max-width: 400px;">
         <div class="modal-header"><span class="modal-title">Create New Folder</span><span class="modal-close" onclick="closeModal('folderModal')">&times;</span></div>
@@ -570,8 +607,6 @@ const menu = document.getElementById('contextMenu');
 
 // Initial Load
 window.onload = () => {
-    // We already have items from PHP initial render if we want, 
-    // but let's just trigger a render to normalize the UI immediately.
     renderExplorer(<?= json_encode($items) ?>, currentDir, currentSearch);
     updateStats(<?= json_encode(['usedPercent' => number_format($usedPercent, 2), 'used' => formatSize($totalUsed), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100]) ?>);
 };
@@ -621,7 +656,6 @@ function renderExplorer(items, dir, search) {
     const breadcrumbTrail = document.getElementById('breadcrumbTrail');
     const itemCounter = document.getElementById('itemCounter');
     
-    // 1. Render Breadcrumbs
     let bcHtml = "";
     if (search) {
         bcHtml = `🔍 Search results for "<strong>${escapeHtml(search)}</strong>"`;
@@ -637,9 +671,7 @@ function renderExplorer(items, dir, search) {
     breadcrumbTrail.innerHTML = bcHtml;
     itemCounter.innerText = `Showing ${items.length} item(s)`;
 
-    // 2. Render List
     let html = "";
-    // Add ".." if not root and not searching
     if (!search && dir !== "") {
         const parent = dir.split('/').slice(0, -1).join('/');
         html += `
@@ -710,230 +742,96 @@ function updateStats(stats) {
     bar.className = 'storage-bar-fill ' + (parseFloat(stats.usedPercent) > 90 ? 'critical' : (parseFloat(stats.usedPercent) > 75 ? 'warning' : ''));
     document.getElementById('statUsedText').innerText = stats.used + ' / 50 GB';
     document.getElementById('statTotalFiles').innerText = 'Total Files: ' + stats.totalFiles;
-    document.getElementById('uploadBtn').disabled = stats.isFull;
-}
-
-/**
- * Event Handlers
- */
-
-function handleSearchKeyUp(e) {
-    if (e.key === 'Enter') triggerSearch();
-}
-
-function triggerSearch() {
-    const q = document.getElementById('searchInput').value.trim();
-    fetchExplorer(currentDir, q);
-}
-
-function clearSearch() {
-    document.getElementById('searchInput').value = "";
-    fetchExplorer(currentDir, "");
-}
-
-function handleContextMenu(e, el) {
-    e.preventDefault();
-    selectedPath = el.dataset.path;
-    selectedName = el.dataset.name;
-    menu.style.left = e.pageX + 'px';
-    menu.style.top = e.pageY + 'px';
-    menu.style.display = 'block';
-}
-
-async function performAction(formData) {
-    try {
-        const response = await fetch(`?dir=${encodeURIComponent(currentDir)}&ajax=1`, {
-            method: 'POST',
-            body: formData,
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        });
-        const res = await response.json();
-        if (res.success) {
-            fetchExplorer(currentDir, currentSearch);
-        } else {
-            uiAlert(res.error || "Action failed.");
-        }
-    } catch (e) {
-        uiAlert("A connection error occurred.");
-    }
-}
-
-function submitNewFolder() {
-    const name = document.getElementById('newFolderName').value.trim();
-    if (!name) return;
-    const fd = new FormData();
-    fd.append('newfolder', name);
-    performAction(fd);
-    closeModal('folderModal');
-    document.getElementById('newFolderName').value = "";
-}
-
-function submitBulkDelete() {
-    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
-    uiConfirm(`Delete ${checked.length} selected items?`, () => {
-        const fd = new FormData();
-        fd.append('bulk_delete', '1');
-        checked.forEach(cb => fd.append('selected_items[]', cb.value));
-        performAction(fd);
-    });
-}
-
-function deleteItem(path, name) {
-    uiConfirm(`Are you sure you want to delete "${name}"?`, async () => {
-        try {
-            await fetch(`?delete=${encodeURIComponent(path)}&dir=${encodeURIComponent(currentDir)}&ajax=1`, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            fetchExplorer(currentDir, currentSearch);
-        } catch (e) { uiAlert("Delete failed."); }
-    });
-}
-
-function renamePrompt() {
-    uiPrompt('Enter new name:', selectedName, (newName) => {
-        if (newName && newName !== selectedName) {
-            const fd = new FormData();
-            fd.append('rename_old', selectedPath);
-            fd.append('rename_new', newName);
-            performAction(fd);
-        }
-    }, "Rename");
-}
-
-function movePrompt() {
-    uiPrompt('Enter target folder path (relative to root):', '', (target) => {
-        if (target !== null && target !== '') {
-            const fd = new FormData();
-            fd.append('move_file', selectedPath);
-            fd.append('move_target', target);
-            performAction(fd);
-        }
-    }, "Move Item");
-}
-
-// Helpers
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
-
-/**
- * Re-used existing UI Modal & Logic
- */
-function uiAlert(message, title = "Notice") {
-    document.getElementById('alertText').innerText = message;
-    document.getElementById('alertTitle').innerText = title;
-    openModal('alertModal');
-}
-
-function uiConfirm(message, onOk, title = "Confirm Action") {
-    document.getElementById('confirmText').innerText = message;
-    document.getElementById('confirmTitle').innerText = title;
-    const okBtn = document.getElementById('confirmOkBtn');
-    const newBtn = okBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newBtn, okBtn);
-    newBtn.onclick = () => { onOk(); closeModal('confirmModal'); };
-    openModal('confirmModal');
-}
-
-function uiPrompt(message, defaultValue, onOk, title = "Input Required") {
-    document.getElementById('promptText').innerText = message;
-    document.getElementById('promptTitle').innerText = title;
-    const input = document.getElementById('promptInput');
-    input.value = defaultValue;
-    const okBtn = document.getElementById('promptOkBtn');
-    const newBtn = okBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newBtn, okBtn);
-    newBtn.onclick = () => { onOk(input.value); closeModal('promptModal'); };
-    openModal('promptModal');
-    setTimeout(() => input.focus(), 300);
-}
-
-function openModal(id) {
-    const m = document.getElementById(id);
-    m.style.display = 'flex';
-    setTimeout(() => m.classList.add('active'), 10);
-}
-
-function closeModal(id) {
-    const m = document.getElementById(id);
-    m.classList.remove('active');
-    setTimeout(() => {
-        m.style.display = 'none';
-        if (id === 'mediaModal') {
-            const body = document.getElementById('mediaBody');
-            const media = body.querySelector('audio, video');
-            if (media) media.pause();
-            body.innerHTML = '';
-        }
-    }, 200);
-}
-
-function openFolderModal() { openModal('folderModal'); }
-
-function handleItemDblClickSelf(path, name, ext) {
-    const imgExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'];
-    const videoExts = ['mp4', 'webm', 'ogg'];
-    const audioExts = ['mp3', 'wav', 'ogg'];
-
-    const mediaBody = document.getElementById('mediaBody');
-    const mediaTitle = document.getElementById('mediaTitle');
-    const downloadUrl = window.location.pathname + `?download=${encodeURIComponent(path)}&t=${Date.now()}`;
-
-    mediaTitle.innerText = name;
-    mediaBody.innerHTML = '<div style="color:white">Loading...</div>';
-
-    if (imgExts.includes(ext)) {
-        const img = new Image();
-        img.onload = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(img); };
-        img.onerror = () => { mediaBody.innerHTML = '<div style="color:white; padding: 20px;">Failed to load image.</div>'; };
-        img.src = downloadUrl;
-        openModal('mediaModal');
-    } else if (videoExts.includes(ext)) {
-        const video = document.createElement('video');
-        video.controls = true; video.autoplay = true; video.preload = "metadata"; video.src = downloadUrl;
-        video.onloadeddata = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(video); };
-        video.onerror = () => { mediaBody.innerHTML = '<div style="color:white">Failed to load video.</div>'; };
-        openModal('mediaModal');
-    } else if (audioExts.includes(ext)) {
-        const audio = document.createElement('audio');
-        audio.controls = true; audio.autoplay = true; audio.preload = "metadata"; audio.src = downloadUrl;
-        audio.onloadeddata = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(audio); };
-        audio.onerror = () => { mediaBody.innerHTML = '<div style="color:white">Failed to load audio.</div>'; };
-        openModal('mediaModal');
-    }
-}
-
-document.addEventListener('click', () => menu.style.display = 'none');
-window.onclick = (e) => { if (e.target.classList.contains('modal')) closeModal(e.target.id); };
-
-function toggleSelectAll(master) {
-    document.getElementsByName('selected_items[]').forEach(cb => cb.checked = master.checked);
-    updateBulkBtn();
-}
-
-function updateBulkBtn() {
-    const count = document.querySelectorAll('input[name="selected_items[]"]:checked').length;
-    const btn = document.getElementById('bulkDeleteBtn');
-    btn.disabled = count === 0;
-    btn.innerHTML = count > 0 ? `🗑️ Delete (${count})` : `🗑️ Delete`;
-}
-
-function formatBytes(bytes, decimals = 2) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-async function uploadFiles() {
-    const input = document.getElementById('uploadInput');
-    if (!input.files.length) return;
-    const files = Array.from(input.files);
     
+    const dropdownBtn = document.getElementById('uploadDropdownBtn');
+    if (dropdownBtn) dropdownBtn.disabled = stats.isFull;
+}
+
+/**
+ * Dropdown UI logic
+ */
+function toggleUploadDropdown() {
+    document.getElementById('uploadDropdownMenu').classList.toggle('active');
+}
+
+window.addEventListener('click', function(e) {
+    if (!e.target.matches('#uploadDropdownBtn')) {
+        const menu = document.getElementById('uploadDropdownMenu');
+        if (menu && menu.classList.contains('active')) {
+            menu.classList.remove('active');
+        }
+    }
+});
+
+/**
+ * Drag & Drop Logic
+ */
+function handleDragOver(e) {
+    e.preventDefault();
+    document.getElementById('explorerBody').classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+    e.preventDefault();
+    document.getElementById('explorerBody').classList.remove('drag-over');
+}
+
+async function handleDrop(e) {
+    e.preventDefault();
+    document.getElementById('explorerBody').classList.remove('drag-over');
+    
+    const items = e.dataTransfer.items;
+    if (!items) return;
+
+    let queue = [];
+
+    // Local function to traverse directories
+    async function traverseFileTree(item, path = "") {
+        if (item.isFile) {
+            const file = await new Promise((resolve) => item.file(resolve));
+            queue.push({ file, relativePath: path + file.name });
+        } else if (item.isDirectory) {
+            const dirReader = item.createReader();
+            const entries = await new Promise((resolve) => {
+                dirReader.readEntries(resolve);
+            });
+            for (let i = 0; i < entries.length; i++) {
+                await traverseFileTree(entries[i], path + item.name + "/");
+            }
+        }
+    }
+
+    // Process all dropped entries
+    for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry();
+        if (entry) {
+            await traverseFileTree(entry);
+        }
+    }
+
+    if (queue.length > 0) {
+        processUploadQueue(queue);
+    }
+}
+
+/**
+ * Unified Sequential Upload Logic
+ */
+async function uploadItems(type) {
+    const input = type === 'folder' ? document.getElementById('folderUploadInput') : document.getElementById('uploadInput');
+    if (!input.files.length) return;
+    
+    const files = Array.from(input.files);
+    let queue = files.map(f => ({
+        file: f,
+        relativePath: f.webkitRelativePath || f.name
+    }));
+
+    processUploadQueue(queue);
+    input.value = ''; 
+}
+
+async function processUploadQueue(queue) {
     const statusGroup = document.getElementById('uploadStatusGroup');
     const badge = document.getElementById('uploadCountBadge');
     const progressBar = document.getElementById('progressBar');
@@ -944,16 +842,22 @@ async function uploadFiles() {
     statusGroup.style.display = 'flex';
     cancelBtn.style.display = 'inline-flex';
 
-    for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+    for (let i = 0; i < queue.length; i++) {
+        const item = queue[i];
         const formData = new FormData();
-        formData.append('upload[]', file);
+        formData.append('upload[]', item.file);
+        
+        // Always append relativePath if it looks like a path (has slash)
+        if (item.relativePath.includes('/')) {
+            formData.append('relativePath', item.relativePath);
+        }
+
         const startTime = Date.now();
         const xhr = new XMLHttpRequest();
         currentXhr = xhr;
 
         const uploadPromise = new Promise((resolve, reject) => {
-            badge.innerText = `Uploading File ${i + 1} of ${files.length}`;
+            badge.innerText = `Uploading Item ${i + 1} of ${queue.length}`;
             xhr.upload.addEventListener('progress', e => {
                 if (e.lengthComputable) {
                     const percent = (e.loaded / e.total) * 100;
@@ -962,13 +866,11 @@ async function uploadFiles() {
                     
                     if (percent >= 100) {
                         progressBar.style.width = '100%';
-                        progressInfo.innerText = `${file.name} (Finalizing upload... Please wait)`;
+                        progressInfo.innerText = `${item.file.name} (Finalizing...)`;
                     } else {
                         progressBar.style.width = percent + '%';
-                        progressInfo.innerText = `${file.name} (${Math.round(percent)}% - ${formatBytes(speed)}/s)`;
+                        progressInfo.innerText = `${item.file.name} (${Math.round(percent)}% - ${formatBytes(speed)}/s)`;
                     }
-                    
-                    // Update the bottom size info
                     uploadSizeBadge.innerText = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
                 }
             });
@@ -978,16 +880,10 @@ async function uploadFiles() {
                         try {
                             const res = JSON.parse(xhr.responseText);
                             if (res.success) resolve();
-                            else reject(res.error || "Unknown server error");
-                        } catch(e) { reject("Server response error (Parsing failed)"); }
+                            else reject(res.error || "Server error");
+                        } catch(e) { reject("Response error"); }
                     } else {
-                        // More descriptive error based on status code
-                        let msg = "Upload failed";
-                        if (xhr.status === 413) msg = "File too large for server (Error 413)";
-                        else if (xhr.status === 504) msg = "Server timeout (Error 504)";
-                        else if (xhr.status === 500) msg = "Internal Server Error (Error 500)";
-                        else if (xhr.status !== 0) msg += " (Status: " + xhr.status + ")";
-                        reject(msg);
+                        reject("Status: " + xhr.status);
                     }
                 }
             };
@@ -1006,20 +902,123 @@ async function uploadFiles() {
             return;
         }
     }
+    
     statusGroup.style.display = 'none';
     cancelBtn.style.display = 'none';
     uploadSizeBadge.innerText = '';
     fetchExplorer(currentDir, currentSearch);
 }
 
-function abortUpload() {
-    if (currentXhr) {
-        currentXhr.abort();
-        currentXhr = null;
-        uiAlert("Upload process stopped.", "Stopped");
-        location.reload();
+/**
+ * Common Actions (Search, New Folder, Delete, etc.)
+ */
+function handleSearchKeyUp(e) { if (e.key === 'Enter') triggerSearch(); }
+function triggerSearch() { fetchExplorer(currentDir, document.getElementById('searchInput').value.trim()); }
+function clearSearch() { document.getElementById('searchInput').value = ""; fetchExplorer(currentDir, ""); }
+
+async function performAction(formData) {
+    try {
+        const response = await fetch(`?dir=${encodeURIComponent(currentDir)}&ajax=1`, {
+            method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        });
+        const res = await response.json();
+        if (res.success) fetchExplorer(currentDir, currentSearch);
+        else uiAlert(res.error || "Action failed.");
+    } catch (e) { uiAlert("Connection error."); }
+}
+
+function submitNewFolder() {
+    const name = document.getElementById('newFolderName').value.trim();
+    if (!name) return;
+    const fd = new FormData(); fd.append('newfolder', name);
+    performAction(fd); closeModal('folderModal');
+    document.getElementById('newFolderName').value = "";
+}
+
+function submitBulkDelete() {
+    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
+    uiConfirm(`Delete ${checked.length} items?`, () => {
+        const fd = new FormData(); fd.append('bulk_delete', '1');
+        checked.forEach(cb => fd.append('selected_items[]', cb.value));
+        performAction(fd);
+    });
+}
+
+function deleteItem(path, name) {
+    uiConfirm(`Delete "${name}"?`, async () => {
+        try {
+            await fetch(`?delete=${encodeURIComponent(path)}&dir=${encodeURIComponent(currentDir)}&ajax=1`, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            fetchExplorer(currentDir, currentSearch);
+        } catch (e) { uiAlert("Delete failed."); }
+    });
+}
+
+function renamePrompt() {
+    uiPrompt('New name:', selectedName, (newName) => {
+        if (newName && newName !== selectedName) {
+            const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', newName);
+            performAction(fd);
+        }
+    });
+}
+
+function movePrompt() {
+    uiPrompt('Target path (from root):', '', (target) => {
+        if (target !== null && target !== '') {
+            const fd = new FormData(); fd.append('move_file', selectedPath); fd.append('move_target', target);
+            performAction(fd);
+        }
+    });
+}
+
+/**
+ * UI Modals & Helpers
+ */
+function uiAlert(msg, title = "Notice") { document.getElementById('alertText').innerText = msg; document.getElementById('alertTitle').innerText = title; openModal('alertModal'); }
+function uiConfirm(msg, onOk) { document.getElementById('confirmText').innerText = msg; const okBtn = document.getElementById('confirmOkBtn'); const newBtn = okBtn.cloneNode(true); okBtn.parentNode.replaceChild(newBtn, okBtn); newBtn.onclick = () => { onOk(); closeModal('confirmModal'); }; openModal('confirmModal'); }
+function uiPrompt(msg, def, onOk) { document.getElementById('promptText').innerText = msg; const input = document.getElementById('promptInput'); input.value = def; const okBtn = document.getElementById('promptOkBtn'); const newBtn = okBtn.cloneNode(true); okBtn.parentNode.replaceChild(newBtn, okBtn); newBtn.onclick = () => { onOk(input.value); closeModal('promptModal'); }; openModal('promptModal'); setTimeout(() => input.focus(), 300); }
+function openModal(id) { const m = document.getElementById(id); m.style.display = 'flex'; setTimeout(() => m.classList.add('active'), 10); }
+function closeModal(id) { 
+    const m = document.getElementById(id); m.classList.remove('active'); 
+    setTimeout(() => { 
+        m.style.display = 'none'; 
+        if (id === 'mediaModal') { const b = document.getElementById('mediaBody'); const m = b.querySelector('audio, video'); if (m) m.pause(); b.innerHTML = ''; } 
+    }, 200); 
+}
+
+function handleItemDblClickSelf(path, name, ext) {
+    const imgExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'];
+    const videoExts = ['mp4', 'webm', 'ogg'];
+    const audioExts = ['mp3', 'wav', 'ogg'];
+    const b = document.getElementById('mediaBody');
+    const url = `?download=${encodeURIComponent(path)}&t=${Date.now()}`;
+    document.getElementById('mediaTitle').innerText = name;
+    b.innerHTML = '<div style="color:white">Loading...</div>';
+
+    if (imgExts.includes(ext)) {
+        const img = new Image(); img.onload = () => { b.innerHTML = ''; b.appendChild(img); }; img.src = url;
+        openModal('mediaModal');
+    } else if (videoExts.includes(ext)) {
+        const v = document.createElement('video'); v.controls = true; v.autoplay = true; v.src = url;
+        v.onloadeddata = () => { b.innerHTML = ''; b.appendChild(v); };
+        openModal('mediaModal');
+    } else if (audioExts.includes(ext)) {
+        const a = document.createElement('audio'); a.controls = true; a.autoplay = true; a.src = url;
+        a.onloadeddata = () => { b.innerHTML = ''; b.appendChild(a); };
+        openModal('mediaModal');
     }
 }
+
+function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+function formatBytes(b) { if (b === 0) return '0 Bytes'; const k = 1024; const s = ['Bytes', 'KB', 'MB', 'GB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i]; }
+function toggleSelectAll(m) { document.getElementsByName('selected_items[]').forEach(cb => cb.checked = m.checked); updateBulkBtn(); }
+function updateBulkBtn() { const c = document.querySelectorAll('input[name="selected_items[]"]:checked').length; const b = document.getElementById('bulkDeleteBtn'); b.disabled = c === 0; b.innerHTML = c > 0 ? `🗑️ Delete (${c})` : `🗑️ Delete`; }
+function abortUpload() { if (currentXhr) { currentXhr.abort(); currentXhr = null; location.reload(); } }
+function handleContextMenu(e, el) { e.preventDefault(); selectedPath = el.dataset.path; selectedName = el.dataset.name; menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px'; menu.style.display = 'block'; }
+document.addEventListener('click', () => menu.style.display = 'none');
+window.onclick = (e) => { if (e.target.classList.contains('modal')) closeModal(e.target.id); };
 </script>
 </body>
 </html>
