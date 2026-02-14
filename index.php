@@ -74,6 +74,13 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true): ?>
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
 
+// Increase limits for large file handling
+// Note: Some of these may be restricted by server master config
+@set_time_limit(0); 
+@ini_set('memory_limit', '1024M');
+@ini_set('max_execution_time', '0');
+@ini_set('max_input_time', '0');
+
 $baseDir = __DIR__ . DIRECTORY_SEPARATOR . 'files';
 if (!file_exists($baseDir)) {
     mkdir($baseDir, 0777, true);
@@ -176,6 +183,7 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['up
             $name = basename($files['name'][$i]);
             $target = $currentDir . DIRECTORY_SEPARATOR . $name;
             if (safePath($target, $realBase)) {
+                // For massive files, this move operation might take significant time
                 if (move_uploaded_file($files['tmp_name'][$i], $target)) {
                     $successCount++;
                 }
@@ -392,6 +400,7 @@ if ($isAjax) {
         #progressContainer { background: #e2e8f0; border-radius: 10px; height: 24px; overflow: hidden; position: relative; width: 100%; }
         #progressBar { height: 100%; width: 0%; background: var(--primary); transition: width 0.1s linear; }
         #progressInfo { position: absolute; width: 100%; text-align: center; top: 0; line-height: 24px; font-size: 0.75rem; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; }
+        #uploadSizeBadge { font-size: 0.75rem; font-weight: 600; color: #64748b; margin-top: 2px; }
         #cancelUploadBtn { display: none; font-size: 0.75rem; padding: 4px 10px; height: 24px; }
         #notification { display: none; margin-bottom: 15px; padding: 12px; background: var(--success); color: white; border-radius: 8px; text-align: center; }
 
@@ -483,6 +492,7 @@ if ($isAjax) {
                     <div id="progressBar"></div>
                     <div id="progressInfo">Waiting to start...</div>
                 </div>
+                <div id="uploadSizeBadge"></div>
             </div>
             <button id="cancelUploadBtn" class="btn btn-danger" onclick="abortUpload()">✖ Cancel</button>
         </div>
@@ -928,6 +938,7 @@ async function uploadFiles() {
     const badge = document.getElementById('uploadCountBadge');
     const progressBar = document.getElementById('progressBar');
     const progressInfo = document.getElementById('progressInfo');
+    const uploadSizeBadge = document.getElementById('uploadSizeBadge');
     const cancelBtn = document.getElementById('cancelUploadBtn');
 
     statusGroup.style.display = 'flex';
@@ -948,14 +959,36 @@ async function uploadFiles() {
                     const percent = (e.loaded / e.total) * 100;
                     const elapsed = (Date.now() - startTime) / 1000;
                     const speed = elapsed > 0 ? e.loaded / elapsed : 0;
-                    progressBar.style.width = percent + '%';
-                    progressInfo.innerText = `${file.name} (${Math.round(percent)}% - ${formatBytes(speed)}/s)`;
+                    
+                    if (percent >= 100) {
+                        progressBar.style.width = '100%';
+                        progressInfo.innerText = `${file.name} (Finalizing upload... Please wait)`;
+                    } else {
+                        progressBar.style.width = percent + '%';
+                        progressInfo.innerText = `${file.name} (${Math.round(percent)}% - ${formatBytes(speed)}/s)`;
+                    }
+                    
+                    // Update the bottom size info
+                    uploadSizeBadge.innerText = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
                 }
             });
             xhr.onreadystatechange = () => {
                 if (xhr.readyState === 4) {
-                    if (xhr.status === 200) resolve();
-                    else reject();
+                    if (xhr.status === 200) {
+                        try {
+                            const res = JSON.parse(xhr.responseText);
+                            if (res.success) resolve();
+                            else reject(res.error || "Unknown server error");
+                        } catch(e) { reject("Server response error (Parsing failed)"); }
+                    } else {
+                        // More descriptive error based on status code
+                        let msg = "Upload failed";
+                        if (xhr.status === 413) msg = "File too large for server (Error 413)";
+                        else if (xhr.status === 504) msg = "Server timeout (Error 504)";
+                        else if (xhr.status === 500) msg = "Internal Server Error (Error 500)";
+                        else if (xhr.status !== 0) msg += " (Status: " + xhr.status + ")";
+                        reject(msg);
+                    }
                 }
             };
             xhr.open('POST', `?dir=${encodeURIComponent(currentDir)}&action=upload&ajax=1`, true);
@@ -963,10 +996,19 @@ async function uploadFiles() {
             xhr.send(formData);
         });
 
-        try { await uploadPromise; } catch (e) { if (currentXhr) uiAlert("Upload failed."); break; }
+        try { 
+            await uploadPromise; 
+        } catch (e) { 
+            if (currentXhr) {
+                uiAlert(e, "Upload Error"); 
+                break; 
+            }
+            return;
+        }
     }
     statusGroup.style.display = 'none';
     cancelBtn.style.display = 'none';
+    uploadSizeBadge.innerText = '';
     fetchExplorer(currentDir, currentSearch);
 }
 
