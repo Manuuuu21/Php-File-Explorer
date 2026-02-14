@@ -1,9 +1,10 @@
 <?php
 /**
  * PHP File Explorer
- * Features: Login System, Recursive Search, 50GB Storage Monitor, Progress bar with Speed indicator, 
+ * Features: Login System, Recursive Search, 100GB Storage Monitor, Progress bar with Speed indicator, 
  * Cancel Upload, Sequential Upload (Unlimited files), Selection Counter, Media Player Modal, 
- * Custom UI Dialogs, Vanilla JS AJAX (No reloads), Folder Upload & Drag-and-Drop Support.
+ * Custom UI Dialogs, Vanilla JS AJAX (No reloads), Folder Upload & Drag-and-Drop Support, 
+ * Multi-column Sorting, ZIP Compression.
  */
 
 // Start output buffering to prevent "headers already sent" issues during redirection
@@ -87,8 +88,8 @@ if (!file_exists($baseDir)) {
 
 $realBase = realpath($baseDir);
 
-// 50GB Storage Limit in Bytes
-$storageLimit = 50 * 1024 * 1024 * 1024;
+// 100GB Storage Limit in Bytes
+$storageLimit = 100 * 1024 * 1024 * 1024;
 
 /**
  * Validates path safety to prevent traversal attacks.
@@ -219,7 +220,59 @@ if (isset($_POST['bulk_delete']) && !empty($_POST['selected_items'])) {
     exit;
 }
 
-// 3. NEW FOLDER
+// 3. ZIP AND DOWNLOAD (Optimized for Windows Compatibility)
+if (isset($_POST['bulk_zip']) && !empty($_POST['selected_items'])) {
+    if (!extension_loaded('zip')) {
+        if ($isAjax) sendJsonResponse(['success' => false, 'error' => 'ZIP extension is not enabled on this server.']);
+        die("ZIP extension is not enabled.");
+    }
+
+    $zip = new ZipArchive();
+    $zipName = 'download_' . date('Ymd_His') . '.zip';
+    $zipPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $zipName;
+
+    if ($zip->open($zipPath, ZipArchive::CREATE) !== TRUE) {
+        if ($isAjax) sendJsonResponse(['success' => false, 'error' => 'Could not create ZIP file.']);
+        die("Could not create ZIP.");
+    }
+
+    foreach ($_POST['selected_items'] as $itemPath) {
+        $fullPath = safePath($realBase . DIRECTORY_SEPARATOR . $itemPath, $realBase);
+        if ($fullPath && file_exists($fullPath)) {
+            if (is_dir($fullPath)) {
+                $files = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($fullPath), RecursiveIteratorIterator::LEAVES_ONLY);
+                foreach ($files as $name => $file) {
+                    if (!$file->isDir()) {
+                        $filePath = $file->getRealPath();
+                        // Internal ZIP paths must use forward slashes for Windows compatibility
+                        $innerPath = substr($filePath, strlen(dirname($fullPath)) + 1);
+                        $innerPath = str_replace(DIRECTORY_SEPARATOR, '/', $innerPath);
+                        $zip->addFile($filePath, $innerPath);
+                    }
+                }
+            } else {
+                $zip->addFile($fullPath, basename($fullPath));
+            }
+        }
+    }
+    $zip->close();
+
+    // Trigger download - Clean output buffers to prevent corruption
+    if (file_exists($zipPath)) {
+        while (ob_get_level()) ob_end_clean();
+        header('Content-Type: application/zip');
+        header('Content-Disposition: attachment; filename="' . $zipName . '"');
+        header('Content-Transfer-Encoding: binary');
+        header('Content-Length: ' . filesize($zipPath));
+        header('Pragma: no-cache');
+        header('Expires: 0');
+        readfile($zipPath);
+        unlink($zipPath); // Delete temp file
+        exit;
+    }
+}
+
+// 4. NEW FOLDER
 if (!empty($_POST['newfolder'])) {
     $name = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['newfolder']);
     if ($name) {
@@ -233,7 +286,7 @@ if (!empty($_POST['newfolder'])) {
     exit;
 }
 
-// 4. INDIVIDUAL DELETE
+// 5. INDIVIDUAL DELETE
 if (isset($_GET['delete'])) {
     $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['delete'], $realBase);
     if ($file && $file !== $realBase) {
@@ -244,7 +297,7 @@ if (isset($_GET['delete'])) {
     exit;
 }
 
-// 5. RENAME & MOVE
+// 6. RENAME & MOVE
 if (isset($_POST['rename_old'], $_POST['rename_new'])) {
     $old = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['rename_old'], $realBase);
     $newName = basename($_POST['rename_new']);
@@ -266,7 +319,7 @@ if (isset($_POST['move_file'], $_POST['move_target'])) {
     exit;
 }
 
-// 6. DOWNLOAD / PREVIEW HANDLER
+// 7. DOWNLOAD / PREVIEW HANDLER
 if (isset($_GET['download'])) {
     $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['download'], $realBase);
     if ($file && is_file($file)) {
@@ -284,7 +337,8 @@ if (isset($_GET['download'])) {
         ];
         $contentType = $mimeTypes[$ext] ?? 'application/octet-stream';
         header('Content-Type: ' . $contentType);
-        header('Content-Disposition: inline; filename="' . basename($file) . '"');
+        // Changed "inline" to "attachment" to force download instead of redirection/opening in browser
+        header('Content-Disposition: attachment; filename="' . basename($file) . '"');
         header('Accept-Ranges: bytes');
         header('X-Content-Type-Options: nosniff');
         if (isset($_SERVER['HTTP_RANGE'])) {
@@ -324,8 +378,10 @@ if ($isSearch) {
                 'name' => $fName,
                 'path' => ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR),
                 'isDir' => $fileInfo->isDir(),
-                'mtime' => date("Y-m-d H:i", $fileInfo->getMTime()),
-                'size' => $fileInfo->isDir() ? '--' : formatSize($fileInfo->getSize()),
+                'mtime' => $fileInfo->getMTime(),
+                'mtime_f' => date("Y-m-d H:i", $fileInfo->getMTime()),
+                'size' => $fileInfo->isDir() ? -1 : $fileInfo->getSize(),
+                'size_f' => $fileInfo->isDir() ? '--' : formatSize($fileInfo->getSize()),
                 'type' => $fileInfo->isDir() ? 'Folder' : strtoupper(pathinfo($fName, PATHINFO_EXTENSION))
             ];
         }
@@ -340,14 +396,17 @@ if ($isSearch) {
                 'name' => $f,
                 'path' => ltrim($relativeDir . '/' . $f, '/'),
                 'isDir' => is_dir($fPath),
-                'mtime' => date("Y-m-d H:i", filemtime($fPath)),
-                'size' => is_dir($fPath) ? '--' : formatSize(filesize($fPath)),
+                'mtime' => filemtime($fPath),
+                'mtime_f' => date("Y-m-d H:i", filemtime($fPath)),
+                'size' => is_dir($fPath) ? -1 : filesize($fPath),
+                'size_f' => is_dir($fPath) ? '--' : formatSize(filesize($fPath)),
                 'type' => is_dir($fPath) ? 'Folder' : strtoupper(pathinfo($f, PATHINFO_EXTENSION))
             ];
         }
     }
 }
 
+// Initial Sort
 usort($items, function($a, $b) {
     if ($a['isDir'] !== $b['isDir']) return $b['isDir'] - $a['isDir'];
     return strcasecmp($a['name'], $b['name']);
@@ -407,13 +466,6 @@ if ($isAjax) {
         .btn:hover { filter: brightness(1.1); }
         .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Unified Upload Button Styles */
-        .upload-wrapper { position: relative; display: inline-block; }
-        .dropdown-menu { position: absolute; top: 100%; left: 0; background: white; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); z-index: 1500; display: none; min-width: 160px; margin-top: 4px; padding: 4px 0; }
-        .dropdown-menu.active { display: block; }
-        .dropdown-item { padding: 10px 16px; cursor: pointer; font-size: 0.9rem; transition: background 0.2s; display: flex; align-items: center; gap: 8px; color: var(--text); }
-        .dropdown-item:hover { background: #f1f5f9; color: var(--primary); }
-
         .upload-controls { display: flex; align-items: flex-end; gap: 10px; width: 100%; margin-top: 15px; }
         .upload-status-group { display: none; flex-grow: 1; flex-direction: column; gap: 4px; }
         #uploadCountBadge { font-size: 0.8rem; font-weight: 700; color: var(--primary); }
@@ -430,23 +482,29 @@ if ($isAjax) {
         .breadcrumb a:hover { text-decoration: underline; }
         .item-counter { font-size: 0.85rem; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
 
-        .file-grid { display: grid; grid-template-columns: 40px 1fr 150px 100px 100px 120px; align-items: center; border-bottom: 1px solid var(--border); }
-        .file-grid-header { font-weight: 600; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px 8px 0 0; padding: 10px 0; font-size: 0.85rem; text-transform: uppercase; color: #64748b; }
-        
-        .file-list { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; min-height: 100px; position: relative; }
-        .file-list.drag-over { background: #eff6ff; border: 2px dashed var(--primary); }
-        .drag-overlay-hint { display: none; position: absolute; top:0; left:0; width:100%; height:100%; pointer-events: none; align-items: center; justify-content: center; background: rgba(37, 99, 235, 0.05); z-index: 10; font-weight: bold; color: var(--primary); }
-        .file-list.drag-over .drag-overlay-hint { display: flex; }
+        .file-grid { display: grid; grid-template-columns: 40px 1fr 150px 100px 100px 120px; align-items: center; }
+        .file-grid-header { font-weight: 600; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px 8px 0 0; padding: 0; font-size: 0.85rem; text-transform: uppercase; color: #64748b; }
+        .col-header { padding: 12px 10px; cursor: pointer; transition: background 0.2s; user-select: none; position: relative; }
+        .col-header:hover { background: #f1f5f9; color: var(--primary); }
+        .col-header.active { color: var(--primary); }
+        .sort-icon { display: none; margin-left: 5px; font-size: 0.7rem; }
+        .col-header.active .sort-icon { display: inline; }
 
+        .file-list { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; min-height: 100px; position: relative; }
+        
         .loading-overlay { display: none; position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.7); z-index: 5; align-items: center; justify-content: center; font-weight: bold; color: var(--primary); }
 
-        .file-item { padding: 12px 0; transition: background 0.1s; font-size: 0.9rem; user-select: none; cursor: default; }
+        .file-item { padding: 12px 0; transition: background 0.1s; font-size: 0.9rem; user-select: none; cursor: default; border: 1px solid var(--border);}
         .file-item:hover { background: #f1f5f9; }
         .col { padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .col-info { display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; font-weight: 500; width: 100%; cursor: pointer; }
         .col-actions { display: flex; justify-content: flex-end; gap: 5px; }
         .icon-btn { padding: 6px; border-radius: 4px; border: none; background: transparent; cursor: pointer; color: #64748b; font-size: 1rem; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
         .icon-btn:hover { background: #e2e8f0; color: var(--primary); }
+
+        #explorerBody.drag-over { background-color: #f0f7ff; border: 2px dashed var(--primary); }
+        .drop-hint { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(37, 99, 235, 0.05); pointer-events: none; z-index: 10; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; color: var(--primary); }
+        #explorerBody.drag-over .drop-hint { display: flex; }
 
         .path-label { font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 2px; }
 
@@ -466,8 +524,8 @@ if ($isAjax) {
         .modal-input { width: 93%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.95rem; outline: none; transition: border-color 0.2s; }
         .modal-input:focus { border-color: var(--primary); }
 
-        .context-menu { position: absolute; display: none; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); z-index: 100; min-width: 150px; padding: 4px 0; }
-        .context-menu div { padding: 10px 16px; cursor: pointer; font-size: 0.9rem; }
+        .context-menu { position: absolute; display: none; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); z-index: 100; min-width: 180px; padding: 4px 0; }
+        .context-menu div { padding: 10px 16px; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
         .context-menu div:hover { background: #f1f5f9; color: var(--primary); }
 
         @media (max-width: 850px) { .file-grid { grid-template-columns: 40px 1fr 100px 100px; } .col-type, .col-date { display: none; } }
@@ -484,7 +542,7 @@ if ($isAjax) {
     <div class="storage-bar-bg">
         <div id="statBar" class="storage-bar-fill <?= $usedPercent > 90 ? 'critical' : ($usedPercent > 75 ? 'warning' : '') ?>" style="width: <?= min(100, $usedPercent) ?>%"></div>
     </div>
-    <div id="statUsedText" class="storage-usage-text"><?= formatSize($totalUsed) ?> / 50 GB</div>
+    <div id="statUsedText" class="storage-usage-text"><?= formatSize($totalUsed) ?> / 100 GB</div>
     <div id="statTotalFiles" class="storage-count-text" style="display:block">Total Files: <?= $totalFilesStorage ?></div>
 </div>
 
@@ -497,21 +555,16 @@ if ($isAjax) {
 
     <div class="toolbar">
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <!-- Single Upload Dropdown -->
-            <div class="upload-wrapper">
-                <button id="uploadDropdownBtn" class="btn btn-primary" onclick="toggleUploadDropdown()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📤 Upload ▼</button>
-                <div id="uploadDropdownMenu" class="dropdown-menu">
-                    <div class="dropdown-item" onclick="document.getElementById('uploadInput').click()">📄 Upload Files</div>
-                    <div class="dropdown-item" onclick="document.getElementById('folderUploadInput').click()">📁 Upload Folder</div>
-                </div>
-            </div>
-
-            <!-- Hidden Inputs -->
             <input type="file" id="uploadInput" multiple style="display: none" onchange="uploadItems('file')">
             <input type="file" id="folderUploadInput" webkitdirectory mozdirectory style="display: none" onchange="uploadItems('folder')">
             
+            <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📤 Upload Files</button>
+            <button id="uploadFolderBtn" class="btn btn-outline" onclick="document.getElementById('folderUploadInput').click()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📁 Upload Folder</button>
             <button class="btn btn-outline" onclick="openFolderModal()">🆕 New Folder</button>
-            <button class="btn btn-danger" id="bulkDeleteBtn" disabled onclick="submitBulkDelete()">🗑️ Delete</button>
+            <div style="display:flex; gap: 4px;">
+                <button class="btn btn-danger" id="bulkDeleteBtn" disabled onclick="submitBulkDelete()">🗑️ Delete</button>
+                <button class="btn btn-outline" id="bulkZipBtn" disabled onclick="submitBulkZip()">📦 ZIP & Download</button>
+            </div>
         </div>
 
         <div class="search-container">
@@ -545,17 +598,16 @@ if ($isAjax) {
     <form id="fileForm" onsubmit="return false">
         <div class="file-grid file-grid-header">
             <div class="col" style="text-align:center"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></div>
-            <div class="col">Name</div>
-            <div class="col col-date">Modified</div>
-            <div class="col col-type">Type</div>
-            <div class="col col-size">Size</div>
+            <div class="col-header active" data-sort="name">Name <span class="sort-icon">▼</span></div>
+            <div class="col-header col-date" data-sort="mtime">Modified <span class="sort-icon">▼</span></div>
+            <div class="col-header col-type" data-sort="type">Type <span class="sort-icon">▼</span></div>
+            <div class="col-header col-size" data-sort="size">Size <span class="sort-icon">▼</span></div>
             <div class="col" style="text-align:right">Actions</div>
         </div>
         
-        <!-- File list acts as Drop Zone -->
-        <div class="file-list" id="explorerBody" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+        <div class="file-list" id="explorerBody">
             <div class="loading-overlay" id="loadingOverlay">🔄 Loading...</div>
-            <div class="drag-overlay-hint">🚀 Drop files or folders here to upload</div>
+            <div class="drop-hint">🚀 Drop files or folders here to upload</div>
             <div id="fileListContent">
                 <!-- Rendered by JS -->
             </div>
@@ -563,7 +615,7 @@ if ($isAjax) {
     </form>
 </div>
 
-<!-- Modals & Context Menus -->
+<!-- Modals -->
 <div id="folderModal" class="modal">
     <div class="modal-content" style="max-width: 400px;">
         <div class="modal-header"><span class="modal-title">Create New Folder</span><span class="modal-close" onclick="closeModal('folderModal')">&times;</span></div>
@@ -591,6 +643,7 @@ if ($isAjax) {
 <div id="contextMenu" class="context-menu">
     <div onclick="renamePrompt()">✏️ Rename</div>
     <div onclick="movePrompt()">📦 Move to folder</div>
+    <div onclick="downloadAsZip()">📦 Download as Zip</div>
 </div>
 
 <script>
@@ -605,9 +658,16 @@ let selectedName = null;
 let currentXhr = null;
 const menu = document.getElementById('contextMenu');
 
+// Sorting state
+let sortKey = 'name';
+let sortOrder = 1; // 1 for Asc, -1 for Desc
+let currentItems = <?= json_encode($items) ?>;
+
 // Initial Load
 window.onload = () => {
-    renderExplorer(<?= json_encode($items) ?>, currentDir, currentSearch);
+    setupSorting();
+    setupDragAndDrop();
+    renderExplorer(currentItems, currentDir, currentSearch);
     updateStats(<?= json_encode(['usedPercent' => number_format($usedPercent, 2), 'used' => formatSize($totalUsed), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100]) ?>);
 };
 
@@ -623,15 +683,16 @@ async function fetchExplorer(dir, search = "", updateHistory = true) {
     
     try {
         const params = new URLSearchParams({ dir, search, ajax: 1 });
-        const response = await fetch(`?${params.toString()}`, {
+        const response = await fetch(`${window.location.pathname}?${params.toString()}`, {
             headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
         const data = await response.json();
         
         currentDir = data.dir;
         currentSearch = data.search;
+        currentItems = data.items;
         
-        renderExplorer(data.items, currentDir, currentSearch);
+        renderExplorer(currentItems, currentDir, currentSearch);
         updateStats(data.stats);
         
         if (updateHistory) {
@@ -656,6 +717,21 @@ function renderExplorer(items, dir, search) {
     const breadcrumbTrail = document.getElementById('breadcrumbTrail');
     const itemCounter = document.getElementById('itemCounter');
     
+    // Apply sorting
+    const sorted = [...items].sort((a, b) => {
+        // Folders always on top regardless of key
+        if (a.isDir !== b.isDir) return b.isDir - a.isDir;
+        
+        let valA = a[sortKey];
+        let valB = b[sortKey];
+
+        if (typeof valA === 'string') {
+            return valA.localeCompare(valB) * sortOrder;
+        }
+        return (valA - valB) * sortOrder;
+    });
+
+    // 1. Render Breadcrumbs
     let bcHtml = "";
     if (search) {
         bcHtml = `🔍 Search results for "<strong>${escapeHtml(search)}</strong>"`;
@@ -669,8 +745,9 @@ function renderExplorer(items, dir, search) {
         });
     }
     breadcrumbTrail.innerHTML = bcHtml;
-    itemCounter.innerText = `Showing ${items.length} item(s)`;
+    itemCounter.innerText = `Showing ${sorted.length} item(s)`;
 
+    // 2. Render List
     let html = "";
     if (!search && dir !== "") {
         const parent = dir.split('/').slice(0, -1).join('/');
@@ -688,7 +765,7 @@ function renderExplorer(items, dir, search) {
             </div>`;
     }
 
-    items.forEach(f => {
+    sorted.forEach(f => {
         const isDir = f.isDir;
         const icon = isDir ? '📁' : '📄';
         const action = isDir 
@@ -715,18 +792,18 @@ function renderExplorer(items, dir, search) {
                             </div>
                         </div>
                     </div>
-                    <div class="col col-date">${f.mtime}</div>
+                    <div class="col col-date">${f.mtime_f}</div>
                     <div class="col col-type">${f.type}</div>
-                    <div class="col col-size">${f.size}</div>
+                    <div class="col col-size">${f.size_f}</div>
                     <div class="col col-actions">
-                        ${!isDir ? `<a href="?download=${encodeURIComponent(f.path)}" class="icon-btn" title="Download">⬇️</a>` : ''}
+                        ${!isDir ? `<a href="${window.location.pathname}?download=${encodeURIComponent(f.path)}" class="icon-btn" title="Download" download="${escapeHtml(f.name)}">⬇️</a>` : ''}
                         <button type="button" onclick="deleteItem('${escapeHtml(f.path)}', '${escapeHtml(f.name)}')" class="icon-btn" title="Delete">🗑️</button>
                     </div>
                 </div>
             </div>`;
     });
 
-    if (items.length === 0) {
+    if (sorted.length === 0) {
         html = `<div style="padding: 40px; text-align: center; color: #94a3b8;">${search ? 'No matches found.' : 'This folder is empty.'}</div>`;
     }
     
@@ -740,98 +817,94 @@ function updateStats(stats) {
     const bar = document.getElementById('statBar');
     bar.style.width = stats.usedPercent + '%';
     bar.className = 'storage-bar-fill ' + (parseFloat(stats.usedPercent) > 90 ? 'critical' : (parseFloat(stats.usedPercent) > 75 ? 'warning' : ''));
-    document.getElementById('statUsedText').innerText = stats.used + ' / 50 GB';
+    document.getElementById('statUsedText').innerText = stats.used + ' / 100 GB';
     document.getElementById('statTotalFiles').innerText = 'Total Files: ' + stats.totalFiles;
-    
-    const dropdownBtn = document.getElementById('uploadDropdownBtn');
-    if (dropdownBtn) dropdownBtn.disabled = stats.isFull;
+    document.getElementById('uploadBtn').disabled = stats.isFull;
+    document.getElementById('uploadFolderBtn').disabled = stats.isFull;
 }
 
 /**
- * Dropdown UI logic
+ * Sorting Setup
  */
-function toggleUploadDropdown() {
-    document.getElementById('uploadDropdownMenu').classList.toggle('active');
+function setupSorting() {
+    document.querySelectorAll('.col-header').forEach(header => {
+        header.onclick = () => {
+            const key = header.dataset.sort;
+            if (sortKey === key) {
+                sortOrder *= -1; // Toggle direction
+            } else {
+                sortKey = key;
+                sortOrder = 1; // Reset to Asc
+            }
+            
+            // Update UI
+            document.querySelectorAll('.col-header').forEach(h => h.classList.remove('active'));
+            header.classList.add('active');
+            header.querySelector('.sort-icon').innerText = sortOrder === 1 ? '▲' : '▼';
+            
+            renderExplorer(currentItems, currentDir, currentSearch);
+        };
+    });
 }
-
-window.addEventListener('click', function(e) {
-    if (!e.target.matches('#uploadDropdownBtn')) {
-        const menu = document.getElementById('uploadDropdownMenu');
-        if (menu && menu.classList.contains('active')) {
-            menu.classList.remove('active');
-        }
-    }
-});
 
 /**
- * Drag & Drop Logic
+ * Drag and Drop Setup
  */
-function handleDragOver(e) {
-    e.preventDefault();
-    document.getElementById('explorerBody').classList.add('drag-over');
-}
+function setupDragAndDrop() {
+    const dropZone = document.getElementById('explorerBody');
 
-function handleDragLeave(e) {
-    e.preventDefault();
-    document.getElementById('explorerBody').classList.remove('drag-over');
-}
+    dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('drag-over');
+    });
 
-async function handleDrop(e) {
-    e.preventDefault();
-    document.getElementById('explorerBody').classList.remove('drag-over');
-    
-    const items = e.dataTransfer.items;
-    if (!items) return;
+    dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('drag-over');
+    });
 
-    let queue = [];
+    dropZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('drag-over');
 
-    // Local function to traverse directories
-    async function traverseFileTree(item, path = "") {
-        if (item.isFile) {
-            const file = await new Promise((resolve) => item.file(resolve));
-            queue.push({ file, relativePath: path + file.name });
-        } else if (item.isDirectory) {
-            const dirReader = item.createReader();
-            const entries = await new Promise((resolve) => {
-                dirReader.readEntries(resolve);
-            });
-            for (let i = 0; i < entries.length; i++) {
-                await traverseFileTree(entries[i], path + item.name + "/");
+        const items = e.dataTransfer.items;
+        if (!items) return;
+
+        let filesToUpload = [];
+
+        async function getFilesFromEntry(entry, path = "") {
+            if (entry.isFile) {
+                return new Promise((resolve) => {
+                    entry.file((file) => {
+                        filesToUpload.push({
+                            file: file,
+                            relativePath: path + file.name
+                        });
+                        resolve();
+                    });
+                });
+            } else if (entry.isDirectory) {
+                const dirReader = entry.createReader();
+                const entries = await new Promise((resolve) => dirReader.readEntries(resolve));
+                for (const childEntry of entries) {
+                    await getFilesFromEntry(childEntry, path + entry.name + "/");
+                }
             }
         }
-    }
 
-    // Process all dropped entries
-    for (let i = 0; i < items.length; i++) {
-        const entry = items[i].webkitGetAsEntry();
-        if (entry) {
-            await traverseFileTree(entry);
+        for (const item of items) {
+            const entry = item.webkitGetAsEntry();
+            if (entry) {
+                await getFilesFromEntry(entry);
+            }
         }
-    }
 
-    if (queue.length > 0) {
-        processUploadQueue(queue);
-    }
+        if (filesToUpload.length > 0) {
+            processUploadBatch(filesToUpload);
+        }
+    });
 }
 
-/**
- * Unified Sequential Upload Logic
- */
-async function uploadItems(type) {
-    const input = type === 'folder' ? document.getElementById('folderUploadInput') : document.getElementById('uploadInput');
-    if (!input.files.length) return;
-    
-    const files = Array.from(input.files);
-    let queue = files.map(f => ({
-        file: f,
-        relativePath: f.webkitRelativePath || f.name
-    }));
-
-    processUploadQueue(queue);
-    input.value = ''; 
-}
-
-async function processUploadQueue(queue) {
+async function processUploadBatch(batch) {
     const statusGroup = document.getElementById('uploadStatusGroup');
     const badge = document.getElementById('uploadCountBadge');
     const progressBar = document.getElementById('progressBar');
@@ -842,13 +915,11 @@ async function processUploadQueue(queue) {
     statusGroup.style.display = 'flex';
     cancelBtn.style.display = 'inline-flex';
 
-    for (let i = 0; i < queue.length; i++) {
-        const item = queue[i];
+    for (let i = 0; i < batch.length; i++) {
+        const item = batch[i];
         const formData = new FormData();
         formData.append('upload[]', item.file);
-        
-        // Always append relativePath if it looks like a path (has slash)
-        if (item.relativePath.includes('/')) {
+        if (item.relativePath) {
             formData.append('relativePath', item.relativePath);
         }
 
@@ -857,7 +928,7 @@ async function processUploadQueue(queue) {
         currentXhr = xhr;
 
         const uploadPromise = new Promise((resolve, reject) => {
-            badge.innerText = `Uploading Item ${i + 1} of ${queue.length}`;
+            badge.innerText = `Uploading ${i + 1} of ${batch.length}`;
             xhr.upload.addEventListener('progress', e => {
                 if (e.lengthComputable) {
                     const percent = (e.loaded / e.total) * 100;
@@ -876,78 +947,160 @@ async function processUploadQueue(queue) {
             });
             xhr.onreadystatechange = () => {
                 if (xhr.readyState === 4) {
-                    if (xhr.status === 200) {
-                        try {
-                            const res = JSON.parse(xhr.responseText);
-                            if (res.success) resolve();
-                            else reject(res.error || "Server error");
-                        } catch(e) { reject("Response error"); }
-                    } else {
-                        reject("Status: " + xhr.status);
-                    }
+                    if (xhr.status === 200) resolve();
+                    else reject("Status: " + xhr.status);
                 }
             };
-            xhr.open('POST', `?dir=${encodeURIComponent(currentDir)}&action=upload&ajax=1`, true);
+            xhr.open('POST', `${window.location.pathname}?dir=${encodeURIComponent(currentDir)}&action=upload&ajax=1`, true);
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
             xhr.send(formData);
         });
 
-        try { 
-            await uploadPromise; 
-        } catch (e) { 
-            if (currentXhr) {
-                uiAlert(e, "Upload Error"); 
-                break; 
-            }
-            return;
-        }
+        try { await uploadPromise; } catch (e) { if (currentXhr) break; }
     }
     
     statusGroup.style.display = 'none';
     cancelBtn.style.display = 'none';
-    uploadSizeBadge.innerText = '';
     fetchExplorer(currentDir, currentSearch);
 }
 
 /**
- * Common Actions (Search, New Folder, Delete, etc.)
+ * Action Handlers
  */
-function handleSearchKeyUp(e) { if (e.key === 'Enter') triggerSearch(); }
-function triggerSearch() { fetchExplorer(currentDir, document.getElementById('searchInput').value.trim()); }
-function clearSearch() { document.getElementById('searchInput').value = ""; fetchExplorer(currentDir, ""); }
+
+function handleSearchKeyUp(e) {
+    if (e.key === 'Enter') triggerSearch();
+}
+
+function triggerSearch() {
+    const q = document.getElementById('searchInput').value.trim();
+    fetchExplorer(currentDir, q);
+}
+
+function clearSearch() {
+    document.getElementById('searchInput').value = "";
+    fetchExplorer(currentDir, "");
+}
+
+function handleContextMenu(e, el) {
+    e.preventDefault();
+    selectedPath = el.dataset.path;
+    selectedName = el.dataset.name;
+    menu.style.left = e.pageX + 'px';
+    menu.style.top = e.pageY + 'px';
+    menu.style.display = 'block';
+}
 
 async function performAction(formData) {
     try {
-        const response = await fetch(`?dir=${encodeURIComponent(currentDir)}&ajax=1`, {
-            method: 'POST', body: formData, headers: { 'X-Requested-With': 'XMLHttpRequest' }
+        const response = await fetch(`${window.location.pathname}?dir=${encodeURIComponent(currentDir)}&ajax=1`, {
+            method: 'POST',
+            body: formData,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' }
         });
         const res = await response.json();
-        if (res.success) fetchExplorer(currentDir, currentSearch);
-        else uiAlert(res.error || "Action failed.");
-    } catch (e) { uiAlert("Connection error."); }
+        if (res.success) {
+            fetchExplorer(currentDir, currentSearch);
+        } else {
+            uiAlert(res.error || "Action failed.");
+        }
+    } catch (e) {
+        uiAlert("A connection error occurred.");
+    }
 }
 
 function submitNewFolder() {
     const name = document.getElementById('newFolderName').value.trim();
     if (!name) return;
-    const fd = new FormData(); fd.append('newfolder', name);
-    performAction(fd); closeModal('folderModal');
+    const fd = new FormData();
+    fd.append('newfolder', name);
+    performAction(fd);
+    closeModal('folderModal');
     document.getElementById('newFolderName').value = "";
 }
 
 function submitBulkDelete() {
     const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
-    uiConfirm(`Delete ${checked.length} items?`, () => {
-        const fd = new FormData(); fd.append('bulk_delete', '1');
+    uiConfirm(`Delete ${checked.length} selected items?`, () => {
+        const fd = new FormData();
+        fd.append('bulk_delete', '1');
         checked.forEach(cb => fd.append('selected_items[]', cb.value));
         performAction(fd);
     });
 }
 
+/**
+ * Bulk Zip implementation (Used by Toolbar Button)
+ */
+function submitBulkZip() {
+    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
+    if (checked.length === 0) return;
+    
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = window.location.pathname;
+    
+    const inputZip = document.createElement('input');
+    inputZip.type = 'hidden';
+    inputZip.name = 'bulk_zip';
+    inputZip.value = '1';
+    form.appendChild(inputZip);
+
+    checked.forEach(cb => {
+        const inputItem = document.createElement('input');
+        inputItem.type = 'hidden';
+        inputItem.name = 'selected_items[]';
+        inputItem.value = cb.value;
+        form.appendChild(inputItem);
+    });
+
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+}
+
+/**
+ * Context Menu: Download as Zip (Optimized)
+ */
+function downloadAsZip() {
+    if (!selectedPath) return;
+    
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = window.location.pathname;
+    
+    const inputZip = document.createElement('input');
+    inputZip.type = 'hidden';
+    inputZip.name = 'bulk_zip';
+    inputZip.value = '1';
+    form.appendChild(inputZip);
+
+    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
+    if (checked.length > 1) {
+        checked.forEach(cb => {
+            const inputItem = document.createElement('input');
+            inputItem.type = 'hidden';
+            inputItem.name = 'selected_items[]';
+            inputItem.value = cb.value;
+            form.appendChild(inputItem);
+        });
+    } else {
+        const inputItem = document.createElement('input');
+        inputItem.type = 'hidden';
+        inputItem.name = 'selected_items[]';
+        inputItem.value = selectedPath;
+        form.appendChild(inputItem);
+    }
+
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+}
+
 function deleteItem(path, name) {
-    uiConfirm(`Delete "${name}"?`, async () => {
+    uiConfirm(`Are you sure you want to delete "${name}"?`, async () => {
         try {
-            await fetch(`?delete=${encodeURIComponent(path)}&dir=${encodeURIComponent(currentDir)}&ajax=1`, {
+            await fetch(`${window.location.pathname}?delete=${encodeURIComponent(path)}&dir=${encodeURIComponent(currentDir)}&ajax=1`, {
                 headers: { 'X-Requested-With': 'XMLHttpRequest' }
             });
             fetchExplorer(currentDir, currentSearch);
@@ -956,69 +1109,172 @@ function deleteItem(path, name) {
 }
 
 function renamePrompt() {
-    uiPrompt('New name:', selectedName, (newName) => {
+    uiPrompt('Enter new name:', selectedName, (newName) => {
         if (newName && newName !== selectedName) {
-            const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', newName);
+            const fd = new FormData();
+            fd.append('rename_old', selectedPath);
+            fd.append('rename_new', newName);
             performAction(fd);
         }
-    });
+    }, "Rename");
 }
 
 function movePrompt() {
-    uiPrompt('Target path (from root):', '', (target) => {
+    uiPrompt('Enter target folder path (relative to root):', '', (target) => {
         if (target !== null && target !== '') {
-            const fd = new FormData(); fd.append('move_file', selectedPath); fd.append('move_target', target);
+            const fd = new FormData();
+            fd.append('move_file', selectedPath);
+            fd.append('move_target', target);
             performAction(fd);
         }
-    });
+    }, "Move Item");
+}
+
+// Helpers
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 /**
- * UI Modals & Helpers
+ * UI Modals
  */
-function uiAlert(msg, title = "Notice") { document.getElementById('alertText').innerText = msg; document.getElementById('alertTitle').innerText = title; openModal('alertModal'); }
-function uiConfirm(msg, onOk) { document.getElementById('confirmText').innerText = msg; const okBtn = document.getElementById('confirmOkBtn'); const newBtn = okBtn.cloneNode(true); okBtn.parentNode.replaceChild(newBtn, okBtn); newBtn.onclick = () => { onOk(); closeModal('confirmModal'); }; openModal('confirmModal'); }
-function uiPrompt(msg, def, onOk) { document.getElementById('promptText').innerText = msg; const input = document.getElementById('promptInput'); input.value = def; const okBtn = document.getElementById('promptOkBtn'); const newBtn = okBtn.cloneNode(true); okBtn.parentNode.replaceChild(newBtn, okBtn); newBtn.onclick = () => { onOk(input.value); closeModal('promptModal'); }; openModal('promptModal'); setTimeout(() => input.focus(), 300); }
-function openModal(id) { const m = document.getElementById(id); m.style.display = 'flex'; setTimeout(() => m.classList.add('active'), 10); }
-function closeModal(id) { 
-    const m = document.getElementById(id); m.classList.remove('active'); 
-    setTimeout(() => { 
-        m.style.display = 'none'; 
-        if (id === 'mediaModal') { const b = document.getElementById('mediaBody'); const m = b.querySelector('audio, video'); if (m) m.pause(); b.innerHTML = ''; } 
-    }, 200); 
+function uiAlert(message, title = "Notice") {
+    document.getElementById('alertText').innerText = message;
+    document.getElementById('alertTitle').innerText = title;
+    openModal('alertModal');
 }
+
+function uiConfirm(message, onOk, title = "Confirm Action") {
+    document.getElementById('confirmText').innerText = message;
+    document.getElementById('confirmTitle').innerText = title;
+    const okBtn = document.getElementById('confirmOkBtn');
+    const newBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newBtn, okBtn);
+    newBtn.onclick = () => { onOk(); closeModal('confirmModal'); };
+    openModal('confirmModal');
+}
+
+function uiPrompt(message, defaultValue, onOk, title = "Input Required") {
+    document.getElementById('promptText').innerText = message;
+    document.getElementById('promptTitle').innerText = title;
+    const input = document.getElementById('promptInput');
+    input.value = defaultValue;
+    const okBtn = document.getElementById('promptOkBtn');
+    const newBtn = okBtn.cloneNode(true);
+    okBtn.parentNode.replaceChild(newBtn, okBtn);
+    newBtn.onclick = () => { onOk(input.value); closeModal('promptModal'); };
+    openModal('promptModal');
+    setTimeout(() => input.focus(), 300);
+}
+
+function openModal(id) {
+    const m = document.getElementById(id);
+    m.style.display = 'flex';
+    setTimeout(() => m.classList.add('active'), 10);
+}
+
+function closeModal(id) {
+    const m = document.getElementById(id);
+    m.classList.remove('active');
+    setTimeout(() => {
+        m.style.display = 'none';
+        if (id === 'mediaModal') {
+            const body = document.getElementById('mediaBody');
+            const media = body.querySelector('audio, video');
+            if (media) media.pause();
+            body.innerHTML = '';
+        }
+    }, 200);
+}
+
+function openFolderModal() { openModal('folderModal'); }
 
 function handleItemDblClickSelf(path, name, ext) {
     const imgExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'];
     const videoExts = ['mp4', 'webm', 'ogg'];
     const audioExts = ['mp3', 'wav', 'ogg'];
-    const b = document.getElementById('mediaBody');
-    const url = `?download=${encodeURIComponent(path)}&t=${Date.now()}`;
-    document.getElementById('mediaTitle').innerText = name;
-    b.innerHTML = '<div style="color:white">Loading...</div>';
+
+    const mediaBody = document.getElementById('mediaBody');
+    const mediaTitle = document.getElementById('mediaTitle');
+    const downloadUrl = window.location.pathname + `?download=${encodeURIComponent(path)}&t=${Date.now()}`;
+
+    mediaTitle.innerText = name;
+    mediaBody.innerHTML = '<div style="color:white">Loading...</div>';
 
     if (imgExts.includes(ext)) {
-        const img = new Image(); img.onload = () => { b.innerHTML = ''; b.appendChild(img); }; img.src = url;
+        const img = new Image();
+        img.onload = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(img); };
+        img.onerror = () => { mediaBody.innerHTML = '<div style="color:white; padding: 20px;">Failed to load image.</div>'; };
+        img.src = downloadUrl;
         openModal('mediaModal');
     } else if (videoExts.includes(ext)) {
-        const v = document.createElement('video'); v.controls = true; v.autoplay = true; v.src = url;
-        v.onloadeddata = () => { b.innerHTML = ''; b.appendChild(v); };
+        const video = document.createElement('video');
+        video.controls = true; video.autoplay = true; video.preload = "metadata"; video.src = downloadUrl;
+        video.onloadeddata = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(video); };
+        video.onerror = () => { mediaBody.innerHTML = '<div style="color:white">Failed to load video.</div>'; };
         openModal('mediaModal');
     } else if (audioExts.includes(ext)) {
-        const a = document.createElement('audio'); a.controls = true; a.autoplay = true; a.src = url;
-        a.onloadeddata = () => { b.innerHTML = ''; b.appendChild(a); };
+        const audio = document.createElement('audio');
+        audio.controls = true; audio.autoplay = true; audio.preload = "metadata"; audio.src = downloadUrl;
+        audio.onloadeddata = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(audio); };
+        audio.onerror = () => { mediaBody.innerHTML = '<div style="color:white">Failed to load audio.</div>'; };
         openModal('mediaModal');
     }
 }
 
-function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
-function formatBytes(b) { if (b === 0) return '0 Bytes'; const k = 1024; const s = ['Bytes', 'KB', 'MB', 'GB']; const i = Math.floor(Math.log(b) / Math.log(k)); return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i]; }
-function toggleSelectAll(m) { document.getElementsByName('selected_items[]').forEach(cb => cb.checked = m.checked); updateBulkBtn(); }
-function updateBulkBtn() { const c = document.querySelectorAll('input[name="selected_items[]"]:checked').length; const b = document.getElementById('bulkDeleteBtn'); b.disabled = c === 0; b.innerHTML = c > 0 ? `🗑️ Delete (${c})` : `🗑️ Delete`; }
-function abortUpload() { if (currentXhr) { currentXhr.abort(); currentXhr = null; location.reload(); } }
-function handleContextMenu(e, el) { e.preventDefault(); selectedPath = el.dataset.path; selectedName = el.dataset.name; menu.style.left = e.pageX + 'px'; menu.style.top = e.pageY + 'px'; menu.style.display = 'block'; }
 document.addEventListener('click', () => menu.style.display = 'none');
 window.onclick = (e) => { if (e.target.classList.contains('modal')) closeModal(e.target.id); };
+
+function toggleSelectAll(master) {
+    document.getElementsByName('selected_items[]').forEach(cb => cb.checked = master.checked);
+    updateBulkBtn();
+}
+
+function updateBulkBtn() {
+    const count = document.querySelectorAll('input[name="selected_items[]"]:checked').length;
+    document.getElementById('bulkDeleteBtn').disabled = count === 0;
+    document.getElementById('bulkDeleteBtn').innerHTML = count > 0 ? `🗑️ Delete (${count})` : `🗑️ Delete`;
+    
+    document.getElementById('bulkZipBtn').disabled = count === 0;
+    document.getElementById('bulkZipBtn').innerHTML = count > 0 ? `📦 ZIP (${count})` : `📦 ZIP & Download`;
+}
+
+function formatBytes(bytes, decimals = 2) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+/**
+ * Upload Logic
+ */
+async function uploadItems(type) {
+    const input = type === 'folder' ? document.getElementById('folderUploadInput') : document.getElementById('uploadInput');
+    if (!input.files.length) return;
+    const files = Array.from(input.files);
+    
+    let batch = files.map(f => ({
+        file: f,
+        relativePath: f.webkitRelativePath || ""
+    }));
+
+    processUploadBatch(batch);
+    input.value = ''; // Reset input
+}
+
+function abortUpload() {
+    if (currentXhr) {
+        currentXhr.abort();
+        currentXhr = null;
+        uiAlert("Upload process stopped.", "Stopped");
+        location.reload();
+    }
+}
 </script>
 </body>
 </html>
