@@ -5,4 +5,4 @@ Custom UI Dialogs, Vanilla JS AJAX (No reloads), Folder Upload & Drag-and-Drop S
 Multi-column Sorting, ZIP Compression.
 
 # Screenshots
-![Img](https://github.com/Manuuuu21/Php-File-Explorer/blob/main/%7BD45AB805-9619-498C-BE85-77774AAC6F08%7D.png)
+![Img](https://github.com/Manuuuu21/Php-File-Explorer/blob/main/{9A48040C-5425-4D3E-AB44-402F3DF5645D}.png)
