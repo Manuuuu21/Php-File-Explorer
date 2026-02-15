@@ -1,30 +1,24 @@
 <?php
 /**
- * PHP File Explorer
+ * PHP File Explorer - Material Design Redesign (Full Feature Restoration)
  * Features: Login System, Recursive Search, 100GB Storage Monitor, Progress bar with Speed indicator, 
- * Cancel Upload, Sequential Upload (Unlimited files), Selection Counter, Media Player Modal, 
- * Custom UI Dialogs, Vanilla JS AJAX (No reloads), Folder Upload & Drag-and-Drop Support, 
- * Multi-column Sorting, ZIP Compression.
+ * Sequential Upload, Selection Counter, Media Player Modal, Context Menus, ZIP Compression, 
+ * Folder Upload & Drag-and-Drop Support, Multi-column Sorting, Server-side Pagination.
  */
 
-// Start output buffering to prevent "headers already sent" issues during redirection
 ob_start();
 session_start();
 
 // ================= SESSION & AUTH =================
-
-// Hardcoded credentials
 $auth_user = "admin";
 $auth_pass = "manuelsintos21";
 
-// Handle Logout
 if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: ' . $_SERVER['PHP_SELF']);
     exit;
 }
 
-// Handle Login
 $login_error = "";
 if (isset($_POST['login_user'], $_POST['login_pass'])) {
     if ($_POST['login_user'] === $auth_user && $_POST['login_pass'] === $auth_pass) {
@@ -36,7 +30,6 @@ if (isset($_POST['login_user'], $_POST['login_pass'])) {
     }
 }
 
-// Protection: If not logged in, show login form
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true): ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -45,18 +38,20 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true): ?>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - File Explorer</title>
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --danger: #ef4444; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-        .login-card { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); width: 100%; max-width: 350px; }
-        h2 { margin-top: 0; text-align: center; color: var(--primary); }
-        input { width: 100%; padding: 10px; margin: 10px 0; border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; }
-        button { width: 100%; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-top: 10px; }
-        .error { color: var(--danger); font-size: 0.85rem; text-align: center; margin-bottom: 10px; }
+        :root { --primary: #3f51b5; --bg: #f3f4f9; --text: #1c1b1f; --surface: #ffffff; }
+        body { font-family: 'Roboto', system-ui, sans-serif; background: var(--bg); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        .login-card { background: var(--surface); padding: 2.5rem; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); width: 100%; max-width: 360px; text-align: center; }
+        h2 { font-weight: 400; color: var(--primary); margin-bottom: 2rem; }
+        input { width: 100%; padding: 14px; margin: 10px 0; border: 1px solid #c4c7c5; border-radius: 12px; box-sizing: border-box; font-size: 1rem; }
+        input:focus { outline: 2px solid var(--primary); border-color: transparent; }
+        button { width: 100%; padding: 14px; background: var(--primary); color: white; border: none; border-radius: 20px; cursor: pointer; font-weight: 500; font-size: 1rem; margin-top: 1.5rem; transition: 0.3s; }
+        button:hover { box-shadow: 0 4px 12px rgba(63, 81, 181, 0.3); }
+        .error { color: #b3261e; font-size: 0.85rem; margin-bottom: 1rem; padding: 10px; background: #f9dedc; border-radius: 8px; }
     </style>
 </head>
 <body>
     <div class="login-card">
-        <h2>📂 Explorer Login</h2>
+        <h2>📂 Welcome</h2>
         <?php if ($login_error): ?>
             <div class="error"><?= htmlspecialchars($login_error) ?></div>
         <?php endif; ?>
@@ -71,29 +66,17 @@ if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true): ?>
 <?php exit; endif; ?>
 
 <?php
-// ================= CONFIG & SECURITY =================
+// ================= CONFIG & LOGIC =================
 ini_set('display_errors', 0);
 error_reporting(E_ALL);
-
-// Increase limits for large file handling
 @set_time_limit(0); 
 @ini_set('memory_limit', '1024M');
-@ini_set('max_execution_time', '0');
-@ini_set('max_input_time', '0');
 
 $baseDir = __DIR__ . DIRECTORY_SEPARATOR . 'files';
-if (!file_exists($baseDir)) {
-    mkdir($baseDir, 0777, true);
-}
-
+if (!file_exists($baseDir)) mkdir($baseDir, 0777, true);
 $realBase = realpath($baseDir);
+$storageLimit = 100 * 1024 * 1024 * 1024; // 100GB
 
-// 100GB Storage Limit in Bytes
-$storageLimit = 100 * 1024 * 1024 * 1024;
-
-/**
- * Validates path safety to prevent traversal attacks.
- */
 function safePath($path, $realBase) {
     $realPath = realpath($path);
     if ($realPath === false) {
@@ -103,41 +86,26 @@ function safePath($path, $realBase) {
     return (strpos($realPath, $realBase) === 0) ? $realPath : false;
 }
 
-/**
- * Calculates total size of a directory recursively
- */
 function getDirectorySize($path) {
     $size = 0;
     if (!file_exists($path)) return 0;
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS));
-    foreach ($it as $file) {
-        $size += $file->getSize();
-    }
+    foreach ($it as $file) $size += $file->getSize();
     return $size;
 }
 
-/**
- * Calculates total count of files recursively
- */
 function getTotalFileCount($path) {
     $count = 0;
     if (!file_exists($path)) return 0;
     $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, RecursiveDirectoryIterator::SKIP_DOTS));
-    foreach ($it as $file) {
-        if ($file->isFile()) $count++;
-    }
+    foreach ($it as $file) if ($file->isFile()) $count++;
     return $count;
 }
 
-/**
- * Recursively deletes a file or directory.
- */
 function recursiveDelete($path) {
     if (is_dir($path)) {
         $files = array_diff(scandir($path), array('.', '..'));
-        foreach ($files as $file) {
-            recursiveDelete($path . DIRECTORY_SEPARATOR . $file);
-        }
+        foreach ($files as $file) recursiveDelete($path . DIRECTORY_SEPARATOR . $file);
         return @rmdir($path);
     }
     return @unlink($path);
@@ -150,24 +118,25 @@ function formatSize($bytes) {
     return $bytes . ' bytes';
 }
 
-// Request Parameters
 $reqDir = $_GET['dir'] ?? '';
 $searchQuery = $_GET['search'] ?? '';
 $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') || isset($_GET['ajax']);
-
 $currentDir = safePath($realBase . DIRECTORY_SEPARATOR . $reqDir, $realBase) ?: $realBase;
 $relativeDir = ltrim(str_replace($realBase, '', $currentDir), DIRECTORY_SEPARATOR);
 
-// ================= ACTION HANDLERS =================
+// Pagination & Sort Params
+$page = (int)($_GET['page'] ?? 1);
+$perPage = 50;
+$sortKey = $_GET['sort'] ?? 'name';
+$sortOrder = (int)($_GET['order'] ?? 1);
 
-// Helper to return JSON and exit
 function sendJsonResponse($data) {
     header('Content-Type: application/json');
     echo json_encode($data);
     exit;
 }
 
-// 1. UPLOAD HANDLER (Supports individual files and folders)
+// 1. UPLOAD HANDLER
 if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['upload'])) {
     $totalUsed = getDirectorySize($realBase);
     $newFilesSize = array_sum($_FILES['upload']['size']);
@@ -175,28 +144,19 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['up
         http_response_code(403);
         sendJsonResponse(['success' => false, 'error' => 'Storage limit exceeded.']);
     }
-
     $files = $_FILES['upload'];
     $successCount = 0;
-    
-    // Check if we have a relative path for folder structure
     $relativePath = $_POST['relativePath'] ?? '';
-
     for ($i = 0; $i < count($files['name']); $i++) {
         if ($files['error'][$i] === UPLOAD_ERR_OK) {
             $name = basename($files['name'][$i]);
-            
-            // If relativePath is provided, we need to ensure the directory exists
             if (!empty($relativePath)) {
                 $targetFile = $currentDir . DIRECTORY_SEPARATOR . ltrim($relativePath, DIRECTORY_SEPARATOR);
                 $targetDir = dirname($targetFile);
-                if (!file_exists($targetDir)) {
-                    mkdir($targetDir, 0777, true);
-                }
+                if (!file_exists($targetDir)) mkdir($targetDir, 0777, true);
             } else {
                 $targetFile = $currentDir . DIRECTORY_SEPARATOR . $name;
             }
-
             if (safePath($targetFile, $realBase)) {
                 if (move_uploaded_file($files['tmp_name'][$i], $targetFile)) {
                     $successCount++;
@@ -207,35 +167,23 @@ if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['up
     sendJsonResponse(['success' => true, 'count' => $successCount]);
 }
 
-// 2. BULK DELETE
+// 2. BULK OPERATIONS
 if (isset($_POST['bulk_delete']) && !empty($_POST['selected_items'])) {
     foreach ($_POST['selected_items'] as $itemPath) {
         $file = safePath($realBase . DIRECTORY_SEPARATOR . $itemPath, $realBase);
-        if ($file && $file !== $realBase) {
-            recursiveDelete($file);
-        }
+        if ($file && $file !== $realBase) recursiveDelete($file);
     }
     if ($isAjax) sendJsonResponse(['success' => true]);
     header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
     exit;
 }
 
-// 3. ZIP AND DOWNLOAD (Optimized for Windows Compatibility)
 if (isset($_POST['bulk_zip']) && !empty($_POST['selected_items'])) {
-    if (!extension_loaded('zip')) {
-        if ($isAjax) sendJsonResponse(['success' => false, 'error' => 'ZIP extension is not enabled on this server.']);
-        die("ZIP extension is not enabled.");
-    }
-
+    if (!extension_loaded('zip')) die("ZIP extension is not enabled.");
     $zip = new ZipArchive();
     $zipName = 'download_' . date('Ymd_His') . '.zip';
     $zipPath = sys_get_temp_dir() . DIRECTORY_SEPARATOR . $zipName;
-
-    if ($zip->open($zipPath, ZipArchive::CREATE) !== TRUE) {
-        if ($isAjax) sendJsonResponse(['success' => false, 'error' => 'Could not create ZIP file.']);
-        die("Could not create ZIP.");
-    }
-
+    if ($zip->open($zipPath, ZipArchive::CREATE) !== TRUE) die("Could not create ZIP.");
     foreach ($_POST['selected_items'] as $itemPath) {
         $fullPath = safePath($realBase . DIRECTORY_SEPARATOR . $itemPath, $realBase);
         if ($fullPath && file_exists($fullPath)) {
@@ -244,10 +192,8 @@ if (isset($_POST['bulk_zip']) && !empty($_POST['selected_items'])) {
                 foreach ($files as $name => $file) {
                     if (!$file->isDir()) {
                         $filePath = $file->getRealPath();
-                        // Internal ZIP paths must use forward slashes for Windows compatibility
                         $innerPath = substr($filePath, strlen(dirname($fullPath)) + 1);
-                        $innerPath = str_replace(DIRECTORY_SEPARATOR, '/', $innerPath);
-                        $zip->addFile($filePath, $innerPath);
+                        $zip->addFile($filePath, str_replace(DIRECTORY_SEPARATOR, '/', $innerPath));
                     }
                 }
             } else {
@@ -256,133 +202,109 @@ if (isset($_POST['bulk_zip']) && !empty($_POST['selected_items'])) {
         }
     }
     $zip->close();
-
-    // Trigger download - Clean output buffers to prevent corruption
     if (file_exists($zipPath)) {
         while (ob_get_level()) ob_end_clean();
         header('Content-Type: application/zip');
         header('Content-Disposition: attachment; filename="' . $zipName . '"');
-        header('Content-Transfer-Encoding: binary');
         header('Content-Length: ' . filesize($zipPath));
-        header('Pragma: no-cache');
-        header('Expires: 0');
-        readfile($zipPath);
-        unlink($zipPath); // Delete temp file
-        exit;
+        readfile($zipPath); unlink($zipPath); exit;
     }
 }
 
-// 4. NEW FOLDER
+// 3. FILE OPERATIONS
 if (!empty($_POST['newfolder'])) {
-    $name = preg_replace('/[^a-zA-Z0-9_-]/', '', $_POST['newfolder']);
-    if ($name) {
-        $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . $name;
-        if (safePath($newFolderPath, $realBase) && !file_exists($newFolderPath)) {
-            mkdir($newFolderPath, 0777);
+    $name = preg_replace('/[^a-zA-Z0-9\s_-]/', '', $_POST['newfolder']);
+    $success = false;
+    if (trim($name)) {
+        $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . trim($name);
+        if (!file_exists($newFolderPath)) {
+             if (@mkdir($newFolderPath, 0777, true)) {
+                 $success = true;
+             }
         }
     }
-    if ($isAjax) sendJsonResponse(['success' => true]);
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
-    exit;
+    if ($isAjax) sendJsonResponse(['success' => $success]);
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
 }
 
-// 5. INDIVIDUAL DELETE
 if (isset($_GET['delete'])) {
     $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['delete'], $realBase);
-    if ($file && $file !== $realBase) {
-        recursiveDelete($file);
-    }
+    if ($file && $file !== $realBase) recursiveDelete($file);
     if ($isAjax) sendJsonResponse(['success' => true]);
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
-    exit;
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
 }
 
-// 6. RENAME & MOVE
 if (isset($_POST['rename_old'], $_POST['rename_new'])) {
     $old = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['rename_old'], $realBase);
     $newName = basename($_POST['rename_new']);
-    if ($old && $old !== $realBase && !empty($newName)) {
-        rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName);
-    }
+    if ($old && $old !== $realBase && !empty($newName)) rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName);
     if ($isAjax) sendJsonResponse(['success' => true]);
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
-    exit;
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
 }
 if (isset($_POST['move_file'], $_POST['move_target'])) {
     $file = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['move_file'], $realBase);
     $targetDir = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['move_target'], $realBase);
-    if ($file && $targetDir && is_dir($targetDir)) {
-        rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file));
-    }
+    if ($file && $targetDir && is_dir($targetDir)) rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file));
     if ($isAjax) sendJsonResponse(['success' => true]);
-    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
-    exit;
+    header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
 }
 
-// 7. DOWNLOAD / PREVIEW HANDLER
 if (isset($_GET['download'])) {
     $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['download'], $realBase);
     if ($file && is_file($file)) {
         while (ob_get_level()) ob_end_clean();
         $size = filesize($file);
-        $length = $size;
-        $start = 0;
-        $end = $size - 1;
         $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
         $mimeTypes = [
-            'jpg'  => 'image/jpeg', 'jpeg' => 'image/jpeg', 'png'  => 'image/png',
-            'gif'  => 'image/gif',  'webp' => 'image/webp', 'svg'  => 'image/svg+xml',
-            'mp4'  => 'video/mp4',  'webm' => 'video/webm', 'ogg'  => 'video/ogg',
-            'mp3'  => 'audio/mpeg', 'wav'  => 'audio/wav'
+            'jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif',
+            'webp'=>'image/webp','svg'=>'image/svg+xml','mp4'=>'video/mp4','webm'=>'video/webm',
+            'ogg'=>'video/ogg','mp3'=>'audio/mpeg','wav'=>'audio/wav'
         ];
         $contentType = $mimeTypes[$ext] ?? 'application/octet-stream';
         header('Content-Type: ' . $contentType);
-        // Changed "inline" to "attachment" to force download instead of redirection/opening in browser
-        header('Content-Disposition: attachment; filename="' . basename($file) . '"');
+        header('Content-Disposition: inline; filename="' . basename($file) . '"');
         header('Accept-Ranges: bytes');
-        header('X-Content-Type-Options: nosniff');
         if (isset($_SERVER['HTTP_RANGE'])) {
             list(, $range) = explode('=', $_SERVER['HTTP_RANGE'], 2);
             $range = explode('-', $range);
-            $start = $range[0];
-            $end = (isset($range[1]) && is_numeric($range[1])) ? $range[1] : $size - 1;
+            $start = (int)$range[0];
+            $end = (isset($range[1]) && is_numeric($range[1])) ? (int)$range[1] : $size - 1;
             header('HTTP/1.1 206 Partial Content');
             header("Content-Range: bytes $start-$end/$size");
             $length = $end - $start + 1;
+            header("Content-Length: " . $length);
+            $fp = fopen($file, 'rb');
+            fseek($fp, $start);
+            echo fread($fp, $length);
+            fclose($fp);
+        } else {
+            header("Content-Length: " . $size);
+            readfile($file);
         }
-        header("Content-Length: " . $length);
-        $fp = fopen($file, 'rb');
-        fseek($fp, $start);
-        $buffer = 8192;
-        while (!feof($fp) && ($pos = ftell($fp)) <= $end) {
-            if ($pos + $buffer > $end) $buffer = $end - $pos + 1;
-            echo fread($fp, $buffer);
-            flush();
-        }
-        fclose($fp);
         exit;
     }
 }
 
-// ================= VIEW LOGIC =================
-$items = [];
+// ================= DATA GATHERING =================
+$allItems = [];
 $isSearch = !empty($searchQuery);
-
 if ($isSearch) {
-    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($realBase, RecursiveDirectoryIterator::SKIP_DOTS));
+    // UPDATED: Include directories in recursive search using SELF_FIRST mode
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($realBase, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
     foreach ($it as $fileInfo) {
-        $fName = $fileInfo->getFilename();
-        if (stripos($fName, $searchQuery) !== false) {
-            $fPath = $fileInfo->getPathname();
-            $items[] = [
-                'name' => $fName,
-                'path' => ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR),
+        if (stripos($fileInfo->getFilename(), $searchQuery) !== false) {
+            $allItems[] = [
+                'name' => $fileInfo->getFilename(),
+                'path' => ltrim(str_replace($realBase, '', $fileInfo->getPathname()), DIRECTORY_SEPARATOR),
                 'isDir' => $fileInfo->isDir(),
                 'mtime' => $fileInfo->getMTime(),
                 'mtime_f' => date("Y-m-d H:i", $fileInfo->getMTime()),
                 'size' => $fileInfo->isDir() ? -1 : $fileInfo->getSize(),
                 'size_f' => $fileInfo->isDir() ? '--' : formatSize($fileInfo->getSize()),
-                'type' => $fileInfo->isDir() ? 'Folder' : strtoupper(pathinfo($fName, PATHINFO_EXTENSION))
+                'type' => $fileInfo->isDir() ? 'Folder' : strtoupper(pathinfo($fileInfo->getFilename(), PATHINFO_EXTENSION))
             ];
         }
     }
@@ -392,7 +314,7 @@ if ($isSearch) {
         foreach ($scanned as $f) {
             if ($f === '.' || $f === '..') continue;
             $fPath = $currentDir . DIRECTORY_SEPARATOR . $f;
-            $items[] = [
+            $allItems[] = [
                 'name' => $f,
                 'path' => ltrim($relativeDir . '/' . $f, '/'),
                 'isDir' => is_dir($fPath),
@@ -406,29 +328,38 @@ if ($isSearch) {
     }
 }
 
-// Initial Sort
-usort($items, function($a, $b) {
+// SERVER SIDE SORTING
+usort($allItems, function($a, $b) use ($sortKey, $sortOrder) {
+    // Folders always first
     if ($a['isDir'] !== $b['isDir']) return $b['isDir'] - $a['isDir'];
-    return strcasecmp($a['name'], $b['name']);
+    
+    $valA = $a[$sortKey];
+    $valB = $b[$sortKey];
+    
+    if (is_string($valA)) {
+        return strcasecmp($valA, $valB) * $sortOrder;
+    }
+    return ($valA - $valB) * $sortOrder;
 });
 
-// Final Storage Calculation
+// SERVER SIDE PAGINATION (Conditional: Only during search)
+$totalMatched = count($allItems);
+if ($isSearch) {
+    $offset = ($page - 1) * $perPage;
+    $items = array_slice($allItems, $offset, $perPage);
+} else {
+    $items = $allItems;
+}
+
 $totalUsed = getDirectorySize($realBase);
 $totalFilesStorage = getTotalFileCount($realBase);
 $usedPercent = ($totalUsed / $storageLimit) * 100;
 
-// Handle AJAX Fetching for Nav/Search
 if ($isAjax) {
     sendJsonResponse([
-        'dir' => $relativeDir,
-        'search' => $searchQuery,
-        'items' => $items,
-        'stats' => [
-            'used' => formatSize($totalUsed),
-            'usedPercent' => number_format($usedPercent, 2),
-            'totalFiles' => $totalFilesStorage,
-            'isFull' => $usedPercent >= 100
-        ]
+        'dir' => $relativeDir, 'search' => $searchQuery, 'items' => $items,
+        'page' => $page, 'totalCount' => $totalMatched, 'perPage' => $perPage,
+        'stats' => ['used' => formatSize($totalUsed), 'usedPercent' => number_format($usedPercent, 2), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100]
     ]);
 }
 ?>
@@ -437,845 +368,1066 @@ if ($isAjax) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PHP File Explorer</title>
+    <title>Material Explorer Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <style>
-        :root { --primary: #2563eb; --bg: #f8fafc; --text: #1e293b; --success: #22c55e; --danger: #ef4444; --border: #e2e8f0; }
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 10px; }
-        
-        .storage-monitor { position: fixed; top: 10px; left: 10px; z-index: 1000; background: white; padding: 10px 14px; border-radius: 10px; width: 150px; pointer-events: none; border: 1px solid var(--border); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        .storage-monitor-header { font-size: 0.75rem; font-weight: 700; color: #64748b; margin-bottom: 6px; display: flex; justify-content: space-between; }
-        .storage-bar-bg { background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden; }
-        .storage-bar-fill { height: 100%; background: var(--primary); transition: width 0.5s ease; }
-        .storage-bar-fill.warning { background: #f59e0b; }
-        .storage-bar-fill.critical { background: var(--danger); }
-        .storage-usage-text { font-size: 0.7rem; color: var(--text); margin-top: 5px; text-align: right; font-family: monospace; }
-        .storage-count-text { font-size: 0.65rem; color: #64748b; margin-top: 2px; text-align: left; }
+        :root {
+            --primary: #3f51b5;
+            --on-primary: #ffffff;
+            --secondary: #009688;
+            --bg: #f8f9fd;
+            --surface: #ffffff;
+            --on-surface: #1c1b1f;
+            --on-surface-variant: #49454f;
+            --outline: #cac4d0;
+            --danger: #b3261e;
+            --sidebar-width: 280px;
+            --elevation-1: 0 1px 3px 1px rgba(0,0,0,0.15);
+            --elevation-2: 0 2px 6px 2px rgba(0,0,0,0.15);
+            --m3-radius: 28px;
+        }
 
-        .container { max-width: 1100px; margin: 60px auto 20px; background: #fff; padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1); }
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-        .toolbar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; background: #f1f5f9; padding: 15px; border-radius: 8px; align-items: center; }
-        
-        .search-container { flex-grow: 1; display: flex; gap: 5px; position: relative; }
-        .search-container input { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; }
-        .search-container input:focus { border-color: var(--primary); }
+        body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--on-surface); margin: 0; display: flex; height: 100vh; overflow: hidden; }
 
-        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-weight: 500; transition: all 0.2s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; font-size: 0.9rem; white-space: nowrap; }
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--surface);
+            border-right: 1px solid var(--outline);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            box-sizing: border-box;
+            flex-shrink: 0;
+            z-index: 1001; /* Above main content on mobile */
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .brand { font-size: 1.5rem; font-weight: 500; color: var(--primary); margin-bottom: 32px; display: flex; align-items: center; justify-content: space-between; }
+        .close-sidebar { display: none; cursor: pointer; font-size: 1.2rem; padding: 4px; }
+
+        .storage-card {
+            background: #e8eaf6;
+            padding: 20px;
+            border-radius: 20px;
+            margin-bottom: 24px;
+        }
+        .storage-card h3 { margin: 0 0 12px 0; font-size: 0.85rem; text-transform: uppercase; color: var(--primary); letter-spacing: 0.5px; }
+        .progress-track { background: #d1d9ff; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 8px; }
+        .progress-fill { height: 100%; background: var(--primary); transition: width 0.5s ease; }
+        .progress-fill.warning { background: #f59e0b; }
+        .progress-fill.critical { background: var(--danger); }
+        .storage-details { font-size: 0.75rem; color: var(--on-surface-variant); display: flex; justify-content: space-between; }
+
+        .sidebar-bottom { margin-top: auto; }
+        .logout-btn {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--danger);
+            padding: 12px 16px;
+            border-radius: 100px;
+            background: #f9dedc;
+            font-weight: 500;
+            transition: 0.2s;
+        }
+        .logout-btn:hover { background: #f2b8b5; }
+
+        /* Content Area */
+        .main-content { flex-grow: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; width: 100%; }
+        .main-content.drag-over { background-color: #f0f7ff; }
+
+        .top-bar {
+            background: var(--surface);
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--outline);
+            gap: 16px;
+            z-index: 10;
+        }
+
+        .menu-toggle { display: none; cursor: pointer; font-size: 1.5rem; color: var(--primary); flex-shrink: 0; }
+
+        .search-field {
+            background: #f1f3f4;
+            border-radius: 28px;
+            padding: 6px 16px;
+            display: flex;
+            align-items: center;
+            flex-grow: 1;
+            max-width: 600px;
+        }
+        .search-field input { border: none; background: transparent; width: 100%; padding: 8px; outline: none; font-size: 1rem; }
+
+        .action-buttons { display: flex; gap: 8px; flex-shrink: 0; }
+
+        .btn {
+            border: none;
+            border-radius: 100px;
+            padding: 8px 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: 0.2s;
+            text-decoration: none;
+            white-space: nowrap;
+        }
         .btn-primary { background: var(--primary); color: white; }
-        .btn-danger { background: var(--danger); color: white; }
-        .btn-outline { background: white; border: 1px solid #cbd5e1; color: var(--text); }
-        .btn:hover { filter: brightness(1.1); }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-tonal { background: #e8def8; color: #1d192b; }
+        .btn-outline { border: 1px solid var(--outline); background: transparent; color: var(--primary); }
+        .btn:hover { box-shadow: var(--elevation-1); filter: brightness(0.95); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-        .upload-controls { display: flex; align-items: flex-end; gap: 10px; width: 100%; margin-top: 15px; }
-        .upload-status-group { display: none; flex-grow: 1; flex-direction: column; gap: 4px; }
-        #uploadCountBadge { font-size: 0.8rem; font-weight: 700; color: var(--primary); }
-        #progressContainer { background: #e2e8f0; border-radius: 10px; height: 24px; overflow: hidden; position: relative; width: 100%; }
-        #progressBar { height: 100%; width: 0%; background: var(--primary); transition: width 0.1s linear; }
-        #progressInfo { position: absolute; width: 100%; text-align: center; top: 0; line-height: 24px; font-size: 0.75rem; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.5); font-weight: bold; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 10px; }
-        #uploadSizeBadge { font-size: 0.75rem; font-weight: 600; color: #64748b; margin-top: 2px; }
-        #cancelUploadBtn { display: none; font-size: 0.75rem; padding: 4px 10px; height: 24px; }
-        #notification { display: none; margin-bottom: 15px; padding: 12px; background: var(--success); color: white; border-radius: 8px; text-align: center; }
+        .explorer-body { padding: 16px; overflow-y: auto; flex-grow: 1; position: relative; }
+        .drop-hint { display: none; position: absolute; inset: 0; background: rgba(37, 99, 235, 0.05); pointer-events: none; z-index: 10; align-items: center; justify-content: center; font-weight: bold; color: var(--primary); border: 2px dashed var(--primary); margin: 24px; border-radius: 16px; }
+        .main-content.drag-over .drop-hint { display: flex; }
 
-        .breadcrumb-container { margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-        .breadcrumb { font-size: 0.95rem; display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
-        .breadcrumb a { color: var(--primary); text-decoration: none; cursor: pointer; }
-        .breadcrumb a:hover { text-decoration: underline; }
-        .item-counter { font-size: 0.85rem; color: #64748b; background: #f1f5f9; padding: 2px 8px; border-radius: 12px; font-weight: 600; }
+        /* Sequential Upload Status */
+        .upload-status-card {
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: var(--elevation-1);
+            display: none;
+            align-items: center;
+ gap: 16px;
+        }
+        .upload-info { flex-grow: 1; overflow: hidden; }
+        .upload-progress-container { background: #eee; height: 10px; border-radius: 6px; overflow: hidden; margin: 8px 0; position: relative; }
+        #uploadProgressBar { height: 100%; background: var(--primary); width: 0%; transition: width 0.1s linear; }
+        #uploadProgressText { display: none; }
 
-        .file-grid { display: grid; grid-template-columns: 40px 1fr 150px 100px 100px 120px; align-items: center; }
-        .file-grid-header { font-weight: 600; background: #f8fafc; border: 1px solid var(--border); border-radius: 8px 8px 0 0; padding: 0; font-size: 0.85rem; text-transform: uppercase; color: #64748b; }
-        .col-header { padding: 12px 10px; cursor: pointer; transition: background 0.2s; user-select: none; position: relative; }
-        .col-header:hover { background: #f1f5f9; color: var(--primary); }
-        .col-header.active { color: var(--primary); }
-        .sort-icon { display: none; margin-left: 5px; font-size: 0.7rem; }
-        .col-header.active .sort-icon { display: inline; }
+        /* Data Table */
+        .data-table-container { background: var(--surface); border-radius: 16px; box-shadow: var(--elevation-1); overflow: hidden; }
+        .table-header {
+            display: grid;
+            grid-template-columns: 44px 1fr 180px 100px 100px 110px;
+            background: #fbfbfc;
+            border-bottom: 1px solid var(--outline);
+            padding: 10px 12px;
+            font-weight: 500;
+            font-size: 0.8rem;
+            color: var(--on-surface-variant);
+            user-select: none;
+        }
+        .table-row {
+            display: grid;
+            grid-template-columns: 44px 1fr 180px 100px 100px 110px;
+            align-items: center;
+            padding: 8px 12px;
+            border-bottom: 1px solid #f1f1f1;
+            transition: 0.1s;
+            cursor: default;
+        }
+        .table-row:hover { background: #f6f6f6; }
+        .table-row.selected { background: #e8f0fe !important; } /* Highlight for selected row */
+        .table-row.folder { cursor: pointer; }
+        .col-name { display: flex; align-items: center; gap: 10px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .icon { font-size: 1.3rem; flex-shrink: 0; }
 
-        .file-list { border: 1px solid var(--border); border-top: none; border-radius: 0 0 8px 8px; overflow: hidden; min-height: 100px; position: relative; }
-        
-        .loading-overlay { display: none; position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(255,255,255,0.7); z-index: 5; align-items: center; justify-content: center; font-weight: bold; color: var(--primary); }
+        /* Breadcrumbs */
+        .breadcrumb-container { margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.85rem; }
+        .breadcrumb-trail { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .breadcrumb-trail a { color: var(--primary); text-decoration: none; font-weight: 500; cursor: pointer; }
+        .breadcrumb-trail span { color: var(--on-surface-variant); }
+        .item-counter { background: #eee; padding: 2px 8px; border-radius: 12px; font-size: 0.7rem; color: #666; font-weight: bold; white-space: nowrap; }
 
-        .file-item { padding: 12px 0; transition: background 0.1s; font-size: 0.9rem; user-select: none; cursor: default; border: 1px solid var(--border);}
-        .file-item:hover { background: #f1f5f9; }
-        .col { padding: 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .col-info { display: flex; align-items: center; gap: 8px; text-decoration: none; color: inherit; font-weight: 500; width: 100%; cursor: pointer; }
-        .col-actions { display: flex; justify-content: flex-end; gap: 5px; }
-        .icon-btn { padding: 6px; border-radius: 4px; border: none; background: transparent; cursor: pointer; color: #64748b; font-size: 1rem; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
-        .icon-btn:hover { background: #e2e8f0; color: var(--primary); }
+        .pagination-btn {
+            background: #eee;
+            border: none;
+            padding: 2px 8px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.7rem;
+            color: var(--primary);
+            transition: 0.2s;
+        }
+        .pagination-btn:hover:not(:disabled) { background: #ddd; }
+        .pagination-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
-        #explorerBody.drag-over { background-color: #f0f7ff; border: 2px dashed var(--primary); }
-        .drop-hint { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(37, 99, 235, 0.05); pointer-events: none; z-index: 10; flex-direction: column; align-items: center; justify-content: center; font-weight: bold; color: var(--primary); }
-        #explorerBody.drag-over .drop-hint { display: flex; }
-
-        .path-label { font-size: 0.75rem; color: #94a3b8; display: block; margin-top: 2px; }
-
-        .modal { display: none; position: fixed; z-index: 2000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s ease; }
+        /* --- MATERIAL DESIGN MODALS --- */
+        .modal { 
+            display: none; 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(0,0,0,0.6); 
+            z-index: 2000; 
+            align-items: center; 
+            justify-content: center; 
+            opacity: 0; 
+            transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            backdrop-filter: blur(8px);
+        }
         .modal.active { display: flex; opacity: 1; }
-        .modal-content { background-color: #fff; padding: 24px; border-radius: 12px; width: 90%; max-width: 850px; max-height: 90vh; overflow: auto; position: relative; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); transform: scale(0.95); transition: transform 0.2s ease; }
-        .modal.active .modal-content { transform: scale(1); }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 12px; }
-        .modal-title { font-weight: bold; font-size: 1.15rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .modal-close { font-size: 28px; font-weight: bold; cursor: pointer; color: #aaa; transition: color 0.2s; padding: 0 10px; line-height: 1; }
-        .modal-close:hover { color: var(--danger); }
-        .media-container { display: flex; justify-content: center; align-items: center; background: #111; border-radius: 8px; overflow: hidden; min-height: 300px; }
-        .media-container img, .media-container video { max-width: 100%; max-height: 75vh; height: auto; display: block; }
-        .media-container audio { width: 90%; padding: 40px 0; }
-        .modal-body { margin-bottom: 24px; font-size: 0.95rem; line-height: 1.5; color: #475569; }
-        .modal-footer { display: flex; justify-content: flex-end; gap: 10px; }
-        .modal-input { width: 93%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.95rem; outline: none; transition: border-color 0.2s; }
-        .modal-input:focus { border-color: var(--primary); }
+        
+        .modal-content { 
+            background: var(--surface); 
+            border-radius: var(--m3-radius); 
+            padding: 24px; 
+            width: 90%; 
+            max-width: 440px; 
+            box-shadow: var(--elevation-2); 
+            transform: translateY(24px); 
+            transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+        }
+        .modal.active .modal-content { transform: translateY(0); }
+        
+        .modal-header { font-size: 1.4rem; margin-bottom: 16px; font-weight: 400; color: var(--on-surface); }
+        .modal-body { margin-bottom: 24px; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 8px; }
 
-        .context-menu { position: absolute; display: none; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); z-index: 100; min-width: 180px; padding: 4px 0; }
-        .context-menu div { padding: 10px 16px; cursor: pointer; font-size: 0.9rem; display: flex; align-items: center; gap: 8px; }
-        .context-menu div:hover { background: #f1f5f9; color: var(--primary); }
+        /* --- REDESIGNED MEDIA VIEWER (CINEMATIC) --- */
+        #mediaModal .modal-content { 
+            max-width: 95vw; 
+            max-height: 95vh; 
+            width: 100%;
+            background: #0d0c0f; /* Pitch Dark Neutral */
+            color: #f4eff4; 
+            padding: 0; 
+            border-radius: var(--m3-radius);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid rgba(255,255,255,0.05);
+        }
+        
+        .media-header {
+            padding: 20px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(to bottom, rgba(13, 12, 15, 0.95), rgba(13, 12, 15, 0));
+            z-index: 101;
+        }
+        
+        #mediaBody { 
+            flex: 1;
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            position: relative; 
+            min-height: 400px; 
+            width: 100%; 
+        }
+        
+        .nav-btn { 
+            position: absolute; 
+            top: 50%; 
+            transform: translateY(-50%); 
+            background: rgba(255, 255, 255, 0.08); 
+            backdrop-filter: blur(12px);
+            color: white; 
+            border: 1px solid rgba(255,255,255,0.1); 
+            border-radius: 50%; 
+            width: 56px; 
+            height: 56px; 
+            cursor: pointer; 
+            font-size: 1.4rem; 
+            transition: 0.3s cubic-bezier(0.2, 0, 0, 1); 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            z-index: 100; 
+            opacity: 0; 
+        }
+        #mediaBody:hover .nav-btn { opacity: 1; }
+        .nav-btn:hover { background: rgba(255,255,255,0.2); transform: translateY(-50%) scale(1.1); }
+        .nav-prev { left: 24px; } 
+        .nav-next { right: 24px; }
+        
+        #mediaContainer { 
+            width: 100%; 
+            height: 100%; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            padding: 40px; 
+            box-sizing: border-box; 
+        }
+        
+        #mediaContainer img, #mediaContainer video { 
+            max-width: 100%; 
+            max-height: 70vh; 
+            border-radius: 16px; 
+            box-shadow: 0 24px 60px rgba(0,0,0,0.6); 
+            transition: opacity 0.3s;
+        }
 
-        @media (max-width: 850px) { .file-grid { grid-template-columns: 40px 1fr 100px 100px; } .col-type, .col-date { display: none; } }
-        @media (max-width: 600px) { .file-grid { grid-template-columns: 40px 1fr 80px; } .col-size { display: none; } .toolbar { flex-direction: column; align-items: stretch; } .storage-monitor { position: static; width: auto; margin-bottom: 10px; } .container { margin-top: 20px; } }
+        /* Vinyl Record Animation for Audio */
+        .audio-player-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 32px;
+            width: 100%;
+            max-width: 480px;
+        }
+        .vinyl-disc {
+            width: 240px;
+            height: 240px;
+            background: #111;
+            border-radius: 50%;
+            border: 10px solid #222;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 15px 45px rgba(0,0,0,0.5);
+            animation: rotateVinyl 8s linear infinite;
+            animation-play-state: paused;
+        }
+        .vinyl-disc.playing { animation-play-state: running; }
+        .vinyl-disc::before {
+            content: '';
+            position: absolute;
+            inset: 40px;
+            border: 2px solid rgba(255,255,255,0.05);
+            border-radius: 50%;
+        }
+        .vinyl-label {
+            width: 80px;
+            height: 80px;
+            background: var(--primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            color: white;
+            z-index: 2;
+        }
+        @keyframes rotateVinyl { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        /* Modernized Audio Control Bar */
+        #mediaContainer audio { 
+            width: 100%; 
+            height: 48px;
+            filter: invert(100%) hue-rotate(180deg) brightness(); /* Force standard player into dark mode style */
+            opacity: 0.9;
+        }
+
+        /* Standard Controls */
+        .m3-input {
+            width: 100%;
+            padding: 14px;
+            border: 1px solid var(--outline);
+            border-radius: 12px;
+            box-sizing: border-box;
+            font-size: 1rem;
+            background: transparent;
+            transition: border 0.2s;
+        }
+        .m3-input:focus { outline: none; border: 2px solid var(--primary); padding: 13px; }
+
+        .context-menu { position: absolute; display: none; background: #fff; border-radius: 12px; box-shadow: var(--elevation-2); z-index: 3000; min-width: 190px; padding: 6px 0; border: 1px solid var(--outline); }
+        .context-menu div { padding: 10px 16px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 0.85rem; }
+        .context-menu div:hover { background: #f1f1f1; }
+
+        .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 1000; }
+
+        /* --- RESPONSIVE ADJUSTMENTS --- */
+        @media (max-width: 1024px) {
+            .sidebar { position: fixed; left: 0; transform: translateX(-100%); height: 100vh; box-shadow: var(--elevation-2); }
+            .sidebar.active { transform: translateX(0); }
+            .sidebar.active + .sidebar-overlay { display: block; }
+            .menu-toggle { display: block; }
+            .close-sidebar { display: block; }
+            .table-header, .table-row { grid-template-columns: 44px 1fr 140px 90px 80px; }
+            .col-type { display: none; }
+        }
+
+        @media (max-width: 768px) {
+            .top-bar { padding: 10px 16px; flex-wrap: wrap; }
+            .action-buttons { width: 100%; justify-content: space-between; order: 3; }
+            .search-field { order: 2; }
+            .btn { flex: 1; justify-content: center; padding: 8px 12px; font-size: 0.75rem; }
+            .table-header, .table-row { grid-template-columns: 44px 1fr 120px 70px; }
+            .col-date { display: none; }
+        }
+
+        @media (max-width: 480px) {
+            .brand { margin-bottom: 24px; }
+            .table-header, .table-row { grid-template-columns: 40px 1fr 60px; }
+            .col-size, .col-date, .col-type { display: none; }
+            .action-buttons .btn span { display: none; }
+            .action-buttons .btn { gap: 0; padding: 10px; }
+            .nav-btn { width: 44px; height: 44px; font-size: 1rem; }
+            .vinyl-disc { width: 180px; height: 180px; }
+        }
     </style>
 </head>
 <body>
 
-<div class="storage-monitor">
-    <div class="storage-monitor-header">
-        <span>STORAGE USED</span>
-        <span id="statPercent"><?= number_format($usedPercent, 2) ?>%</span>
-    </div>
-    <div class="storage-bar-bg">
-        <div id="statBar" class="storage-bar-fill <?= $usedPercent > 90 ? 'critical' : ($usedPercent > 75 ? 'warning' : '') ?>" style="width: <?= min(100, $usedPercent) ?>%"></div>
-    </div>
-    <div id="statUsedText" class="storage-usage-text"><?= formatSize($totalUsed) ?> / 100 GB</div>
-    <div id="statTotalFiles" class="storage-count-text" style="display:block">Total Files: <?= $totalFilesStorage ?></div>
-</div>
+    <div class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
 
-<div class="container">
-    <div id="notification"></div>
-    <header>
-        <h2 style="margin:0">📂 File Explorer</h2>
-        <a href="?logout=1" class="btn btn-outline" style="font-size: 0.8rem;">🚪 Logout</a>
-    </header>
+    <!-- SIDEBAR -->
+    <aside class="sidebar" id="sidebar">
+        <div class="brand">
+            <span>📂 Explorer</span>
+            <div class="close-sidebar" onclick="toggleSidebar(false)">✕</div>
+        </div>
+        
+        <div class="storage-card">
+            <h3>Storage Used</h3>
+            <div class="progress-track">
+                <div id="statBar" class="progress-fill" style="width: 0%"></div>
+            </div>
+            <div class="storage-details">
+                <span id="statUsedText">0 / 0</span>
+                <span id="statPercent">0%</span>
+            </div>
+            <div id="statTotalFiles" style="font-size: 0.7rem; margin-top: 8px; color: #555;">Total Files: 0</div>
+        </div>
 
-    <div class="toolbar">
-        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <input type="file" id="uploadInput" multiple style="display: none" onchange="uploadItems('file')">
-            <input type="file" id="folderUploadInput" webkitdirectory mozdirectory style="display: none" onchange="uploadItems('folder')">
+        <nav style="display: flex; flex-direction: column; gap: 12px;">
+            <button class="btn btn-tonal" onclick="openModal('folderModal'); toggleSidebar(false);">🆕 New Folder</button>
+        </nav>
+
+        <div class="sidebar-bottom">
+            <a href="?logout=1" class="logout-btn">🚪 Logout</a>
+        </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main-content" id="dropZone">
+        <header class="top-bar">
+            <div class="menu-toggle" onclick="toggleSidebar(true)">☰</div>
+
+            <div class="search-field">
+                🔍 <input type="text" id="searchInput" placeholder="Search files..." value="<?= htmlspecialchars($searchQuery) ?>" onkeyup="handleSearchKeyUp(event)">
+                <button id="clearSearchBtn" style="background:none; border:none; cursor:pointer; display:none" onclick="clearSearch()">✖</button>
+            </div>
+
+            <div class="action-buttons">
+                <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()">📤 <span>Upload Files</span></button>
+                <input type="file" id="uploadInput" multiple style="display:none" onchange="uploadItems('file')">
+                
+                <button class="btn btn-outline" onclick="document.getElementById('folderInput').click()">📁 <span>Upload Folder</span></button>
+                <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="uploadItems('folder')">
+            </div>
+        </header>
+
+        <div class="explorer-body">
+            <div class="drop-hint">🚀 Drop here to upload</div>
             
-            <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📤 Upload Files</button>
-            <button id="uploadFolderBtn" class="btn btn-outline" onclick="document.getElementById('folderUploadInput').click()" <?= $usedPercent >= 100 ? 'disabled' : '' ?>>📁 Upload Folder</button>
-            <button class="btn btn-outline" onclick="openFolderModal()">🆕 New Folder</button>
-            <div style="display:flex; gap: 4px;">
-                <button class="btn btn-danger" id="bulkDeleteBtn" disabled onclick="submitBulkDelete()">🗑️ Delete</button>
-                <button class="btn btn-outline" id="bulkZipBtn" disabled onclick="submitBulkZip()">📦 ZIP & Download</button>
+            <!-- Sequential Upload Status -->
+            <div id="uploadStatusCard" class="upload-status-card">
+                <div class="upload-info">
+                    <div id="uploadCountBadge" style="font-weight: 500; font-size: 0.85rem;">Uploading...</div>
+                    <div class="upload-progress-container">
+                        <div id="uploadProgressBar"></div>
+                    </div>
+                    <!-- Upload Details Row -->
+                    <div id="progressInfo" style="font-size: 0.75rem; color: #666; display: flex; justify-content: space-between; white-space: nowrap; overflow: hidden;">
+                        <span id="uploadFileName" style="overflow: hidden; text-overflow: ellipsis; padding-right: 8px;">Waiting...</span>
+                        <span id="uploadSpeed">0 KB/s</span>
+                    </div>
+                    <!-- Restoration: Uploaded Size Badge -->
+                    <div id="uploadSizeBadge" style="font-size: 0.7rem; color: #888; margin-top: 4px; font-weight: 500;">0 / 0</div>
+                </div>
+                <button class="btn btn-outline" style="color: var(--danger); padding: 8px 12px; font-size: 0.75rem;" onclick="abortUpload()">Abort</button>
+            </div>
+
+            <div class="breadcrumb-container">
+                <div class="breadcrumb-trail" id="breadcrumbTrail"></div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <div id="bulkActions" style="display: none; gap: 8px;">
+                        <button class="btn btn-outline" id="bulkZipBtn" onclick="submitBulkZip()" style="padding: 4px 12px; font-size: 0.75rem;background: navajowhite;">📦 Download as ZIP</button>
+                        <button class="btn btn-outline" id="bulkDeleteBtn" onclick="submitBulkDelete()" style="padding: 4px 12px; font-size: 0.75rem; color: #fff;background: red;">🗑️ Delete</button>
+                    </div>
+                    <div id="paginationContainer" style="display:none; gap: 4px;">
+                        <button class="pagination-btn" id="prevPageBtn" onclick="navigatePage(-1)">❮ Previous</button>
+                        <button class="pagination-btn" id="nextPageBtn" onclick="navigatePage(1)">Next ❯</button>
+                    </div>
+                    <div class="item-counter" id="itemCounter">0 items</div>
+                </div>
+            </div>
+
+            <div class="data-table-container">
+                <div class="table-header">
+                    <div style="text-align:center"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></div>
+                    <div style="cursor:pointer" onclick="changeSort('name')">Name</div>
+                    <div class="col-date" style="cursor:pointer" onclick="changeSort('mtime')">Modified</div>
+                    <div class="col-type" style="cursor:pointer" onclick="changeSort('type')">Type</div>
+                    <div class="col-size" style="cursor:pointer" onclick="changeSort('size')">Size</div>
+                    <div style="text-align:right">Actions</div>
+                </div>
+                <div id="fileListContent"></div>
             </div>
         </div>
+    </main>
 
-        <div class="search-container">
-            <input type="text" id="searchInput" placeholder="Search files in all folders..." value="<?= htmlspecialchars($searchQuery) ?>" autocomplete="off" onkeyup="handleSearchKeyUp(event)">
-            <button type="button" class="btn btn-primary" onclick="triggerSearch()">🔍</button>
-            <button type="button" id="clearSearchBtn" class="btn btn-outline" style="<?= $isSearch ? '' : 'display:none' ?>" onclick="clearSearch()">✖</button>
-        </div>
-
-        <div class="upload-controls">
-            <div id="uploadStatusGroup" class="upload-status-group">
-                <div id="uploadCountBadge">Preparing upload...</div>
-                <div id="progressContainer">
-                    <div id="progressBar"></div>
-                    <div id="progressInfo">Waiting to start...</div>
-                </div>
-                <div id="uploadSizeBadge"></div>
+    <!-- M3 FOLDER MODAL -->
+    <div id="folderModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">New Folder</div>
+            <div class="modal-body">
+                <input type="text" id="newFolderName" class="m3-input" placeholder="Folder Name" autofocus>
             </div>
-            <button id="cancelUploadBtn" class="btn btn-danger" onclick="abortUpload()">✖ Cancel</button>
-        </div>
-    </div>
-
-    <div class="breadcrumb-container">
-        <div class="breadcrumb" id="breadcrumbTrail">
-            <!-- Rendered by JS -->
-        </div>
-        <div class="item-counter" id="itemCounter">
-            Showing <?= $itemCountVisible ?> item(s)
-        </div>
-    </div>
-
-    <form id="fileForm" onsubmit="return false">
-        <div class="file-grid file-grid-header">
-            <div class="col" style="text-align:center"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></div>
-            <div class="col-header active" data-sort="name">Name <span class="sort-icon">▼</span></div>
-            <div class="col-header col-date" data-sort="mtime">Modified <span class="sort-icon">▼</span></div>
-            <div class="col-header col-type" data-sort="type">Type <span class="sort-icon">▼</span></div>
-            <div class="col-header col-size" data-sort="size">Size <span class="sort-icon">▼</span></div>
-            <div class="col" style="text-align:right">Actions</div>
-        </div>
-        
-        <div class="file-list" id="explorerBody">
-            <div class="loading-overlay" id="loadingOverlay">🔄 Loading...</div>
-            <div class="drop-hint">🚀 Drop files or folders here to upload</div>
-            <div id="fileListContent">
-                <!-- Rendered by JS -->
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('folderModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="submitNewFolder()">Create</button>
             </div>
         </div>
-    </form>
-</div>
-
-<!-- Modals -->
-<div id="folderModal" class="modal">
-    <div class="modal-content" style="max-width: 400px;">
-        <div class="modal-header"><span class="modal-title">Create New Folder</span><span class="modal-close" onclick="closeModal('folderModal')">&times;</span></div>
-        <div class="modal-body"><input type="text" id="newFolderName" placeholder="Folder Name" required class="modal-input"></div>
-        <div class="modal-footer"><button type="button" class="btn btn-outline" onclick="closeModal('folderModal')">Cancel</button><button type="button" class="btn btn-primary" onclick="submitNewFolder()">Create</button></div>
     </div>
-</div>
-
-<div id="mediaModal" class="modal">
-    <div class="modal-content"><div class="modal-header"><span id="mediaTitle" class="modal-title">Media Viewer</span><span class="modal-close" onclick="closeModal('mediaModal')">&times;</span></div><div id="mediaBody" class="media-container"></div></div>
-</div>
-
-<div id="confirmModal" class="modal">
-    <div class="modal-content" style="max-width: 400px;"><div class="modal-header"><span class="modal-title" id="confirmTitle">Confirm Action</span><span class="modal-close" onclick="closeModal('confirmModal')">&times;</span></div><div class="modal-body" id="confirmText"></div><div class="modal-footer"><button type="button" class="btn btn-outline" onclick="closeModal('confirmModal')">Cancel</button><button type="button" class="btn btn-danger" id="confirmOkBtn">Confirm</button></div></div>
-</div>
-
-<div id="promptModal" class="modal">
-    <div class="modal-content" style="max-width: 400px;"><div class="modal-header"><span class="modal-title" id="promptTitle">Input Required</span><span class="modal-close" onclick="closeModal('promptModal')">&times;</span></div><div class="modal-body"><div id="promptText" style="margin-bottom:12px"></div><input type="text" id="promptInput" class="modal-input"></div><div class="modal-footer"><button type="button" class="btn btn-outline" onclick="closeModal('promptModal')">Cancel</button><button type="button" class="btn btn-primary" id="promptOkBtn">Save</button></div></div>
-</div>
-
-<div id="alertModal" class="modal">
-    <div class="modal-content" style="max-width: 400px;"><div class="modal-header"><span class="modal-title" id="alertTitle">Notice</span><span class="modal-close" onclick="closeModal('alertModal')">&times;</span></div><div class="modal-body" id="alertText"></div><div class="modal-footer"><button type="button" class="btn btn-primary" onclick="closeModal('alertModal')">OK</button></div></div>
-</div>
-
-<div id="contextMenu" class="context-menu">
-    <div onclick="renamePrompt()">✏️ Rename</div>
-    <div onclick="movePrompt()">📦 Move to folder</div>
-    <div onclick="downloadAsZip()">📦 Download as Zip</div>
-</div>
-
-<script>
-/**
- * Single Page Application Logic (Vanilla JS AJAX)
- */
-
-let currentDir = "<?= addslashes($relativeDir) ?>";
-let currentSearch = "<?= addslashes($searchQuery) ?>";
-let selectedPath = null;
-let selectedName = null;
-let currentXhr = null;
-const menu = document.getElementById('contextMenu');
-
-// Sorting state
-let sortKey = 'name';
-let sortOrder = 1; // 1 for Asc, -1 for Desc
-let currentItems = <?= json_encode($items) ?>;
-
-// Initial Load
-window.onload = () => {
-    setupSorting();
-    setupDragAndDrop();
-    renderExplorer(currentItems, currentDir, currentSearch);
-    updateStats(<?= json_encode(['usedPercent' => number_format($usedPercent, 2), 'used' => formatSize($totalUsed), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100]) ?>);
-};
-
-// Handle Browser Back/Forward
-window.onpopstate = (e) => {
-    const state = e.state || { dir: "", search: "" };
-    fetchExplorer(state.dir, state.search, false);
-};
-
-async function fetchExplorer(dir, search = "", updateHistory = true) {
-    const overlay = document.getElementById('loadingOverlay');
-    overlay.style.display = 'flex';
     
-    try {
-        const params = new URLSearchParams({ dir, search, ajax: 1 });
-        const response = await fetch(`${window.location.pathname}?${params.toString()}`, {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        });
-        const data = await response.json();
-        
-        currentDir = data.dir;
-        currentSearch = data.search;
-        currentItems = data.items;
-        
-        renderExplorer(currentItems, currentDir, currentSearch);
-        updateStats(data.stats);
-        
-        if (updateHistory) {
-            const url = new URL(window.location);
-            url.searchParams.set('dir', currentDir);
-            if (currentSearch) url.searchParams.set('search', currentSearch);
-            else url.searchParams.delete('search');
-            history.pushState({ dir: currentDir, search: currentSearch }, '', url);
-        }
-        
-        document.getElementById('clearSearchBtn').style.display = currentSearch ? 'inline-flex' : 'none';
-        document.getElementById('searchInput').value = currentSearch;
-    } catch (e) {
-        uiAlert("Failed to load folder content.");
-    } finally {
-        overlay.style.display = 'none';
-    }
-}
-
-function renderExplorer(items, dir, search) {
-    const list = document.getElementById('fileListContent');
-    const breadcrumbTrail = document.getElementById('breadcrumbTrail');
-    const itemCounter = document.getElementById('itemCounter');
-    
-    // Apply sorting
-    const sorted = [...items].sort((a, b) => {
-        // Folders always on top regardless of key
-        if (a.isDir !== b.isDir) return b.isDir - a.isDir;
-        
-        let valA = a[sortKey];
-        let valB = b[sortKey];
-
-        if (typeof valA === 'string') {
-            return valA.localeCompare(valB) * sortOrder;
-        }
-        return (valA - valB) * sortOrder;
-    });
-
-    // 1. Render Breadcrumbs
-    let bcHtml = "";
-    if (search) {
-        bcHtml = `🔍 Search results for "<strong>${escapeHtml(search)}</strong>"`;
-    } else {
-        bcHtml = `🏠 <a onclick="fetchExplorer('')">Root</a>`;
-        const parts = dir.split('/').filter(p => p);
-        let cum = "";
-        parts.forEach(p => {
-            cum += (cum ? '/' : '') + p;
-            bcHtml += ` <span>/</span> <a onclick="fetchExplorer('${cum.replace(/'/g, "\\'")}')">${escapeHtml(p)}</a>`;
-        });
-    }
-    breadcrumbTrail.innerHTML = bcHtml;
-    itemCounter.innerText = `Showing ${sorted.length} item(s)`;
-
-    // 2. Render List
-    let html = "";
-    if (!search && dir !== "") {
-        const parent = dir.split('/').slice(0, -1).join('/');
-        html += `
-            <div class="file-item">
-                <div class="file-grid">
-                    <div class="col"></div>
-                    <div class="col">
-                        <div class="col-info" onclick="fetchExplorer('${parent.replace(/'/g, "\\'")}')">
-                            <span>⤴️</span> <strong>..</strong>
-                        </div>
-                    </div>
-                    <div class="col col-date"></div><div class="col col-type"></div><div class="col col-size"></div><div class="col"></div>
+    <!-- REDESIGNED CINEMATIC MEDIA MODAL -->
+    <div id="mediaModal" class="modal">
+        <div class="modal-content">
+            <div class="media-header">
+                <div style="display: flex; flex-direction: column; overflow: hidden; gap: 4px;">
+                    <span id="mediaTitle" style="font-weight: 500; font-size: 1.1rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: -0.2px;">Viewer</span>
+                    <span id="mediaSubtitle" style="font-size: 0.75rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 0.5px;">Media Preview</span>
                 </div>
-            </div>`;
-    }
+                <span onclick="closeModal('mediaModal')" style="cursor:pointer; font-size:32px; line-height: 1; padding: 4px; opacity: 0.8;">&times;</span>
+            </div>
+            <div id="mediaBody">
+                <button class="nav-btn nav-prev" onclick="navigateMedia(-1)">❮</button>
+                <div id="mediaContainer"></div>
+                <button class="nav-btn nav-next" onclick="navigateMedia(1)">❯</button>
+            </div>
+        </div>
+    </div>
 
-    sorted.forEach(f => {
-        const isDir = f.isDir;
-        const icon = isDir ? '📁' : '📄';
-        const action = isDir 
-            ? `onclick="fetchExplorer('${f.path.replace(/'/g, "\\'")}')"` 
-            : `onclick="handleItemDblClickSelf('${f.path.replace(/'/g, "\\'")}', '${f.name.replace(/'/g, "\\'")}', '${f.type.toLowerCase()}')"`;
-        
-        html += `
-            <div class="file-item" 
-                 data-path="${escapeHtml(f.path)}" 
-                 data-name="${escapeHtml(f.name)}" 
-                 data-ext="${f.type.toLowerCase()}"
-                 data-isdir="${isDir ? '1' : '0'}"
-                 oncontextmenu="handleContextMenu(event, this)">
-                <div class="file-grid">
-                    <div class="col" style="text-align:center">
-                        <input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" onclick="updateBulkBtn()">
-                    </div>
-                    <div class="col">
-                        <div class="col-info" ${action}>
-                            <span>${icon}</span>
-                            <div>
-                                <strong>${escapeHtml(f.name)}</strong>
-                                ${search ? `<span class="path-label">in ${escapeHtml(f.path.substring(0, f.path.lastIndexOf('/')) || 'Root')}</span>` : ''}
-                            </div>
-                        </div>
-                    </div>
-                    <div class="col col-date">${f.mtime_f}</div>
-                    <div class="col col-type">${f.type}</div>
-                    <div class="col col-size">${f.size_f}</div>
-                    <div class="col col-actions">
-                        ${!isDir ? `<a href="${window.location.pathname}?download=${encodeURIComponent(f.path)}" class="icon-btn" title="Download" download="${escapeHtml(f.name)}">⬇️</a>` : ''}
-                        <button type="button" onclick="deleteItem('${escapeHtml(f.path)}', '${escapeHtml(f.name)}')" class="icon-btn" title="Delete">🗑️</button>
-                    </div>
-                </div>
-            </div>`;
-    });
+    <!-- OTHER MODALS -->
+    <div id="confirmModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header" id="confirmTitle">Confirm</div>
+            <div class="modal-body" id="confirmText"></div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('confirmModal')">Cancel</button>
+                <button class="btn btn-primary" id="confirmOkBtn" style="background: var(--danger)">Delete</button>
+            </div>
+        </div>
+    </div>
 
-    if (sorted.length === 0) {
-        html = `<div style="padding: 40px; text-align: center; color: #94a3b8;">${search ? 'No matches found.' : 'This folder is empty.'}</div>`;
-    }
+    <div id="promptModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header" id="promptTitle">Input</div>
+            <div class="modal-body">
+                <div id="promptText" style="margin-bottom:12px; color: var(--on-surface-variant); font-size: 0.9rem;"></div>
+                <input type="text" id="promptInput" class="m3-input">
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('promptModal')">Cancel</button>
+                <button class="btn btn-primary" id="promptOkBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="alertModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header" id="alertTitle">Notice</div>
+            <div class="modal-body" id="alertText" style="font-size: 0.9rem;"></div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="closeModal('alertModal')">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div id="contextMenu" class="context-menu">
+        <div onclick="renamePrompt()">✏️ Rename</div>
+        <div onclick="movePrompt()">📦 Move this file</div>
+    </div>
+
+    <script>
+    let currentDir = "<?= addslashes($relativeDir) ?>";
+    let currentSearch = "<?= addslashes($searchQuery) ?>";
+    let currentItems = <?= json_encode($items) ?>;
     
-    list.innerHTML = html;
-    document.getElementById('selectAll').checked = false;
-    updateBulkBtn();
-}
+    // Pagination state
+    let currentPage = 1;
+    let totalItems = <?= $totalMatched ?>;
+    let perPage = 50;
 
-function updateStats(stats) {
-    document.getElementById('statPercent').innerText = stats.usedPercent + '%';
-    const bar = document.getElementById('statBar');
-    bar.style.width = stats.usedPercent + '%';
-    bar.className = 'storage-bar-fill ' + (parseFloat(stats.usedPercent) > 90 ? 'critical' : (parseFloat(stats.usedPercent) > 75 ? 'warning' : ''));
-    document.getElementById('statUsedText').innerText = stats.used + ' / 100 GB';
-    document.getElementById('statTotalFiles').innerText = 'Total Files: ' + stats.totalFiles;
-    document.getElementById('uploadBtn').disabled = stats.isFull;
-    document.getElementById('uploadFolderBtn').disabled = stats.isFull;
-}
+    let selectedPath = null;
+    let selectedName = null;
+    let currentXhr = null;
+    let mediaItems = [];
+    let currentMediaIndex = -1;
+    let sortKey = 'name', sortOrder = 1;
 
-/**
- * Sorting Setup
- */
-function setupSorting() {
-    document.querySelectorAll('.col-header').forEach(header => {
-        header.onclick = () => {
-            const key = header.dataset.sort;
-            if (sortKey === key) {
-                sortOrder *= -1; // Toggle direction
-            } else {
-                sortKey = key;
-                sortOrder = 1; // Reset to Asc
-            }
-            
-            // Update UI
-            document.querySelectorAll('.col-header').forEach(h => h.classList.remove('active'));
-            header.classList.add('active');
-            header.querySelector('.sort-icon').innerText = sortOrder === 1 ? '▲' : '▼';
-            
-            renderExplorer(currentItems, currentDir, currentSearch);
-        };
-    });
-}
+    const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav'];
 
-/**
- * Drag and Drop Setup
- */
-function setupDragAndDrop() {
-    const dropZone = document.getElementById('explorerBody');
+    window.onload = () => {
+        setupDragAndDrop();
+        renderExplorer();
+        updateStats(<?= json_encode(['usedPercent' => number_format($usedPercent, 2), 'used' => formatSize($totalUsed), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100]) ?>);
+    };
 
-    dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('drag-over');
-    });
+    function toggleSidebar(active) {
+        const sidebar = document.getElementById('sidebar');
+        if (active) sidebar.classList.add('active');
+        else sidebar.classList.remove('active');
+    }
 
-    dropZone.addEventListener('dragleave', () => {
-        dropZone.classList.remove('drag-over');
-    });
-
-    dropZone.addEventListener('drop', async (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('drag-over');
-
-        const items = e.dataTransfer.items;
-        if (!items) return;
-
-        let filesToUpload = [];
-
-        async function getFilesFromEntry(entry, path = "") {
-            if (entry.isFile) {
-                return new Promise((resolve) => {
-                    entry.file((file) => {
-                        filesToUpload.push({
-                            file: file,
-                            relativePath: path + file.name
-                        });
-                        resolve();
-                    });
-                });
-            } else if (entry.isDirectory) {
-                const dirReader = entry.createReader();
-                const entries = await new Promise((resolve) => dirReader.readEntries(resolve));
-                for (const childEntry of entries) {
-                    await getFilesFromEntry(childEntry, path + entry.name + "/");
-                }
-            }
+    // Global Keyboard Events
+    document.addEventListener('keydown', (e) => {
+        if (document.getElementById('mediaModal').classList.contains('active')) {
+            if (e.key === 'ArrowLeft') navigateMedia(-1);
+            if (e.key === 'ArrowRight') navigateMedia(1);
+            if (e.key === 'Escape') closeModal('mediaModal');
         }
-
-        for (const item of items) {
-            const entry = item.webkitGetAsEntry();
-            if (entry) {
-                await getFilesFromEntry(entry);
-            }
-        }
-
-        if (filesToUpload.length > 0) {
-            processUploadBatch(filesToUpload);
+        if (e.key === 'Escape') {
+            document.querySelectorAll('.modal.active').forEach(m => closeModal(m.id));
+            toggleSidebar(false);
         }
     });
-}
 
-async function processUploadBatch(batch) {
-    const statusGroup = document.getElementById('uploadStatusGroup');
-    const badge = document.getElementById('uploadCountBadge');
-    const progressBar = document.getElementById('progressBar');
-    const progressInfo = document.getElementById('progressInfo');
-    const uploadSizeBadge = document.getElementById('uploadSizeBadge');
-    const cancelBtn = document.getElementById('cancelUploadBtn');
+    function renderExplorer() {
+        const list = document.getElementById('fileListContent');
+        const bc = document.getElementById('breadcrumbTrail');
+        const counter = document.getElementById('itemCounter');
+        
+        // Sorting is now handled server-side for accurate pagination
+        const items = currentItems;
 
-    statusGroup.style.display = 'flex';
-    cancelBtn.style.display = 'inline-flex';
-
-    for (let i = 0; i < batch.length; i++) {
-        const item = batch[i];
-        const formData = new FormData();
-        formData.append('upload[]', item.file);
-        if (item.relativePath) {
-            formData.append('relativePath', item.relativePath);
-        }
-
-        const startTime = Date.now();
-        const xhr = new XMLHttpRequest();
-        currentXhr = xhr;
-
-        const uploadPromise = new Promise((resolve, reject) => {
-            badge.innerText = `Uploading ${i + 1} of ${batch.length}`;
-            xhr.upload.addEventListener('progress', e => {
-                if (e.lengthComputable) {
-                    const percent = (e.loaded / e.total) * 100;
-                    const elapsed = (Date.now() - startTime) / 1000;
-                    const speed = elapsed > 0 ? e.loaded / elapsed : 0;
-                    
-                    if (percent >= 100) {
-                        progressBar.style.width = '100%';
-                        progressInfo.innerText = `${item.file.name} (Finalizing...)`;
-                    } else {
-                        progressBar.style.width = percent + '%';
-                        progressInfo.innerText = `${item.file.name} (${Math.round(percent)}% - ${formatBytes(speed)}/s)`;
-                    }
-                    uploadSizeBadge.innerText = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
-                }
+        let bcHtml = currentSearch ? `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"` : `<a onclick="fetchExplorer('', '', 1)">Root</a>`;
+        if (!currentSearch) {
+            let cum = "";
+            currentDir.split('/').filter(p => p).forEach(p => {
+                cum += (cum ? '/' : '') + p;
+                bcHtml += ` <span>/</span> <a onclick="fetchExplorer('${cum.replace(/'/g, "\\'")}', '', 1)">${escapeHtml(p)}</a>`;
             });
-            xhr.onreadystatechange = () => {
-                if (xhr.readyState === 4) {
-                    if (xhr.status === 200) resolve();
-                    else reject("Status: " + xhr.status);
-                }
-            };
-            xhr.open('POST', `${window.location.pathname}?dir=${encodeURIComponent(currentDir)}&action=upload&ajax=1`, true);
-            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-            xhr.send(formData);
-        });
+        }
+        bc.innerHTML = bcHtml;
 
-        try { await uploadPromise; } catch (e) { if (currentXhr) break; }
-    }
-    
-    statusGroup.style.display = 'none';
-    cancelBtn.style.display = 'none';
-    fetchExplorer(currentDir, currentSearch);
-}
-
-/**
- * Action Handlers
- */
-
-function handleSearchKeyUp(e) {
-    if (e.key === 'Enter') triggerSearch();
-}
-
-function triggerSearch() {
-    const q = document.getElementById('searchInput').value.trim();
-    fetchExplorer(currentDir, q);
-}
-
-function clearSearch() {
-    document.getElementById('searchInput').value = "";
-    fetchExplorer(currentDir, "");
-}
-
-function handleContextMenu(e, el) {
-    e.preventDefault();
-    selectedPath = el.dataset.path;
-    selectedName = el.dataset.name;
-    menu.style.left = e.pageX + 'px';
-    menu.style.top = e.pageY + 'px';
-    menu.style.display = 'block';
-}
-
-async function performAction(formData) {
-    try {
-        const response = await fetch(`${window.location.pathname}?dir=${encodeURIComponent(currentDir)}&ajax=1`, {
-            method: 'POST',
-            body: formData,
-            headers: { 'X-Requested-With': 'XMLHttpRequest' }
-        });
-        const res = await response.json();
-        if (res.success) {
-            fetchExplorer(currentDir, currentSearch);
+        // Render Pagination UI (Only if searching)
+        const totalPages = currentSearch ? Math.ceil(totalItems / perPage) : 1;
+        const pagContainer = document.getElementById('paginationContainer');
+        if (currentSearch && totalPages > 1) {
+            pagContainer.style.display = 'flex';
+            document.getElementById('prevPageBtn').disabled = currentPage <= 1;
+            document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+            counter.innerText = `Showing ${Math.min(totalItems, (currentPage - 1) * perPage + 1)}-${Math.min(totalItems, currentPage * perPage)} of ${totalItems}`;
         } else {
-            uiAlert(res.error || "Action failed.");
+            pagContainer.style.display = 'none';
+            counter.innerText = `${totalItems} item(s)`;
         }
-    } catch (e) {
-        uiAlert("A connection error occurred.");
-    }
-}
 
-function submitNewFolder() {
-    const name = document.getElementById('newFolderName').value.trim();
-    if (!name) return;
-    const fd = new FormData();
-    fd.append('newfolder', name);
-    performAction(fd);
-    closeModal('folderModal');
-    document.getElementById('newFolderName').value = "";
-}
+        let html = "";
+        if (!currentSearch && currentDir !== "" && currentPage === 1) {
+            const parent = currentDir.split('/').slice(0, -1).join('/');
+            html += `<div class="table-row folder" onclick="fetchExplorer('${parent.replace(/'/g, "\\'")}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
+        }
 
-function submitBulkDelete() {
-    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
-    uiConfirm(`Delete ${checked.length} selected items?`, () => {
-        const fd = new FormData();
-        fd.append('bulk_delete', '1');
-        checked.forEach(cb => fd.append('selected_items[]', cb.value));
-        performAction(fd);
-    });
-}
-
-/**
- * Bulk Zip implementation (Used by Toolbar Button)
- */
-function submitBulkZip() {
-    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
-    if (checked.length === 0) return;
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = window.location.pathname;
-    
-    const inputZip = document.createElement('input');
-    inputZip.type = 'hidden';
-    inputZip.name = 'bulk_zip';
-    inputZip.value = '1';
-    form.appendChild(inputZip);
-
-    checked.forEach(cb => {
-        const inputItem = document.createElement('input');
-        inputItem.type = 'hidden';
-        inputItem.name = 'selected_items[]';
-        inputItem.value = cb.value;
-        form.appendChild(inputItem);
-    });
-
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
-}
-
-/**
- * Context Menu: Download as Zip (Optimized)
- */
-function downloadAsZip() {
-    if (!selectedPath) return;
-    
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = window.location.pathname;
-    
-    const inputZip = document.createElement('input');
-    inputZip.type = 'hidden';
-    inputZip.name = 'bulk_zip';
-    inputZip.value = '1';
-    form.appendChild(inputZip);
-
-    const checked = document.querySelectorAll('input[name="selected_items[]"]:checked');
-    if (checked.length > 1) {
-        checked.forEach(cb => {
-            const inputItem = document.createElement('input');
-            inputItem.type = 'hidden';
-            inputItem.name = 'selected_items[]';
-            inputItem.value = cb.value;
-            form.appendChild(inputItem);
+        items.forEach(f => {
+            const isMedia = !f.isDir && viewableExts.includes(f.type.toLowerCase());
+            const action = f.isDir ? `fetchExplorer('${f.path.replace(/'/g, "\\'")}', '', 1)` : (isMedia ? `openMediaViewer('${f.path.replace(/'/g, "\\'")}')` : '');
+            
+            html += `
+            <div class="table-row ${f.isDir ? 'folder' : ''}" oncontextmenu="handleContextMenu(event, this)" data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
+                <div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" onclick="updateBulkBtn()"></div>
+                <div class="col-name" onclick="${action}">
+                    <span class="icon">${f.isDir ? '📁' : '📄'}</span>
+                    <div style="display: flex; flex-direction: column; min-width: 0;">
+                        <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>
+                        ${currentSearch ? `<span style="font-size:0.6rem; color:#888;">in ${escapeHtml(f.path.substring(0, f.path.lastIndexOf('/')) || 'Root')}</span>` : ''}
+                    </div>
+                </div>
+                <div class="col-date" style="color:#666; font-size:0.75rem;">${f.mtime_f}</div>
+                <div class="col-type" style="color:#666; font-size:0.75rem;">${f.type}</div>
+                <div class="col-size" style="color:#666; font-size:0.75rem;">${f.size_f}</div>
+                <div style="text-align:right">
+                    ${!f.isDir ? `<a href="?download=${encodeURIComponent(f.path)}" style="text-decoration:none; margin-right:8px;" title="Download" download="${escapeHtml(f.name)}">⬇️</a>` : ''}
+                    <span onclick="deleteItem('${escapeHtml(f.path)}', '${escapeHtml(f.name)}')" style="cursor:pointer;" title="Delete">🗑️</span>
+                </div>
+            </div>`;
         });
-    } else {
-        const inputItem = document.createElement('input');
-        inputItem.type = 'hidden';
-        inputItem.name = 'selected_items[]';
-        inputItem.value = selectedPath;
-        form.appendChild(inputItem);
+        list.innerHTML = html || `<div style="padding:30px; text-align:center; color:#999; font-size:0.9rem;">${currentSearch ? 'No matches found.' : 'Folder empty.'}</div>`;
+        document.getElementById('selectAll').checked = false;
+        updateBulkBtn();
     }
 
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
-}
-
-function deleteItem(path, name) {
-    uiConfirm(`Are you sure you want to delete "${name}"?`, async () => {
+    async function fetchExplorer(dir, search = "", page = 1) {
         try {
-            await fetch(`${window.location.pathname}?delete=${encodeURIComponent(path)}&dir=${encodeURIComponent(currentDir)}&ajax=1`, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            const url = `${window.location.pathname}?dir=${encodeURIComponent(dir)}&search=${encodeURIComponent(search)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1`;
+            const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+            const data = await response.json();
+            
+            currentDir = data.dir; 
+            currentSearch = data.search; 
+            currentItems = data.items;
+            currentPage = data.page;
+            totalItems = data.totalCount;
+            perPage = data.perPage;
+
+            renderExplorer();
+            updateStats(data.stats);
+            document.getElementById('clearSearchBtn').style.display = currentSearch ? 'inline' : 'none';
+            // Sync the search input visually to match the current search state
+            document.getElementById('searchInput').value = currentSearch;
+        } catch (e) { uiAlert("Load failed."); }
+    }
+
+    function navigatePage(dir) {
+        fetchExplorer(currentDir, currentSearch, currentPage + dir);
+    }
+
+    function updateStats(stats) {
+        document.getElementById('statPercent').innerText = stats.usedPercent + '%';
+        const bar = document.getElementById('statBar');
+        bar.style.width = stats.usedPercent + '%';
+        bar.className = 'progress-fill ' + (parseFloat(stats.usedPercent) > 90 ? 'critical' : (parseFloat(stats.usedPercent) > 75 ? 'warning' : ''));
+        document.getElementById('statUsedText').innerText = `${stats.used} / 100 GB`;
+        document.getElementById('statTotalFiles').innerText = `Total Files: ${stats.totalFiles}`;
+        document.getElementById('uploadBtn').disabled = stats.isFull;
+    }
+
+    async function uploadItems(type) {
+        const input = type === 'folder' ? document.getElementById('folderInput') : document.getElementById('uploadInput');
+        if (!input.files.length) return;
+        const batch = Array.from(input.files).map(f => ({ file: f, relativePath: f.webkitRelativePath || "" }));
+        processUploadBatch(batch);
+        input.value = '';
+    }
+
+    async function processUploadBatch(batch) {
+        const card = document.getElementById('uploadStatusCard');
+        const badge = document.getElementById('uploadCountBadge');
+        const bar = document.getElementById('uploadProgressBar');
+        const nameLabel = document.getElementById('uploadFileName');
+        const speedLabel = document.getElementById('uploadSpeed');
+        const sizeLabel = document.getElementById('uploadSizeBadge');
+
+        card.style.display = 'flex';
+        
+        for (let i = 0; i < batch.length; i++) {
+            const item = batch[i];
+            const formData = new FormData();
+            formData.append('upload[]', item.file);
+            if (item.relativePath) formData.append('relativePath', item.relativePath);
+
+            const startTime = Date.now();
+            const xhr = new XMLHttpRequest();
+            currentXhr = xhr;
+
+            const uploadPromise = new Promise((resolve, reject) => {
+                badge.innerText = `Uploading ${i + 1} of ${batch.length}`;
+                nameLabel.innerText = item.file.name;
+                
+                xhr.upload.onprogress = e => {
+                    if (e.lengthComputable) {
+                        const percent = (e.loaded / e.total) * 100;
+                        const elapsed = (Date.now() - startTime) / 1000;
+                        const speed = elapsed > 0 ? e.loaded / elapsed : 0;
+                        
+                        bar.style.width = percent + '%';
+                        
+                        // Finalizing status update
+                        if (percent >= 100) {
+                            nameLabel.innerText = `${item.file.name} (Finalizing... please wait)`;
+                            speedLabel.innerText = "Processing...";
+                        } else {
+                            nameLabel.innerText = item.file.name;
+                            speedLabel.innerText = formatBytes(speed) + '/s';
+                        }
+                        
+                        sizeLabel.innerText = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
+                    }
+                };
+
+                xhr.onreadystatechange = () => {
+                    if (xhr.readyState === 4) {
+                        if (xhr.status === 200) resolve();
+                        else reject();
+                    }
+                };
+
+                xhr.open('POST', `${window.location.pathname}?dir=${encodeURIComponent(currentDir)}&action=upload&ajax=1`, true);
+                xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+                xhr.send(formData);
             });
-            fetchExplorer(currentDir, currentSearch);
-        } catch (e) { uiAlert("Delete failed."); }
-    });
-}
 
-function renamePrompt() {
-    uiPrompt('Enter new name:', selectedName, (newName) => {
-        if (newName && newName !== selectedName) {
-            const fd = new FormData();
-            fd.append('rename_old', selectedPath);
-            fd.append('rename_new', newName);
-            performAction(fd);
+            try {
+                await uploadPromise;
+            } catch (e) {
+                if (currentXhr) {
+                    uiAlert("Upload failed.");
+                    break;
+                }
+            }
         }
-    }, "Rename");
-}
+        card.style.display = 'none';
+        fetchExplorer(currentDir, currentSearch, currentPage);
+    }
 
-function movePrompt() {
-    uiPrompt('Enter target folder path (relative to root):', '', (target) => {
-        if (target !== null && target !== '') {
-            const fd = new FormData();
-            fd.append('move_file', selectedPath);
-            fd.append('move_target', target);
-            performAction(fd);
+    function setupDragAndDrop() {
+        const dz = document.getElementById('dropZone');
+        dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag-over'); });
+        dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+        dz.addEventListener('drop', async (e) => {
+            e.preventDefault();
+            dz.classList.remove('drag-over');
+            const items = e.dataTransfer.items;
+            if (!items) return;
+
+            let filesToUpload = [];
+            async function getFilesFromEntry(entry, path = "") {
+                if (entry.isFile) {
+                    return new Promise(resolve => entry.file(file => { 
+                        filesToUpload.push({ file, relativePath: path + file.name }); 
+                        resolve(); 
+                    }));
+                } else if (entry.isDirectory) {
+                    const dirReader = entry.createReader();
+                    const entries = await new Promise(resolve => dirReader.readEntries(resolve));
+                    for (const childEntry of entries) await getFilesFromEntry(childEntry, path + entry.name + "/");
+                }
+            }
+
+            for (const item of items) {
+                const entry = item.webkitGetAsEntry();
+                if (entry) await getFilesFromEntry(entry);
+            }
+            if (filesToUpload.length) processUploadBatch(filesToUpload);
+        });
+    }
+
+    function openModal(id) { 
+        const m = document.getElementById(id); 
+        m.style.display = 'flex'; 
+        setTimeout(() => {
+            m.classList.add('active');
+            const input = m.querySelector('input');
+            if (input) input.focus();
+        }, 10); 
+    }
+
+    function closeModal(id) { 
+        const m = document.getElementById(id); 
+        m.classList.remove('active'); 
+        setTimeout(() => {
+            m.style.display = 'none';
+            if (id === 'mediaModal') {
+                const container = document.getElementById('mediaContainer');
+                const media = container.querySelector('audio, video');
+                if (media) media.pause();
+                container.innerHTML = '';
+            }
+        }, 300); 
+    }
+
+    function deleteItem(path, name) {
+        uiConfirm(`Delete "${name}"?`, async () => {
+            await fetch(`?delete=${encodeURIComponent(path)}&ajax=1`);
+            fetchExplorer(currentDir, currentSearch, currentPage);
+        });
+    }
+
+    function changeSort(key) { 
+        if (sortKey === key) sortOrder *= -1; 
+        else { sortKey = key; sortOrder = 1; } 
+        fetchExplorer(currentDir, currentSearch, 1); // Reset to page 1 on sort change
+    }
+    
+    function toggleSelectAll(m) { 
+        document.getElementsByName('selected_items[]').forEach(cb => {
+            cb.checked = m.checked;
+        }); 
+        updateBulkBtn(); 
+    }
+    
+    function updateBulkBtn() {
+        const checkboxes = document.querySelectorAll('input[name="selected_items[]"]');
+        let checkedCount = 0;
+        
+        checkboxes.forEach(cb => {
+            const row = cb.closest('.table-row');
+            if (cb.checked) {
+                checkedCount++;
+                if (row) row.classList.add('selected');
+            } else {
+                if (row) row.classList.remove('selected');
+            }
+        });
+
+        const bulkActions = document.getElementById('bulkActions');
+        const deleteBtn = document.getElementById('bulkDeleteBtn');
+        const zipBtn = document.getElementById('bulkZipBtn');
+
+        if (checkedCount > 0) {
+            bulkActions.style.display = 'flex';
+            deleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+            zipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        } else {
+            bulkActions.style.display = 'none';
         }
-    }, "Move Item");
-}
+    }
 
-// Helpers
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
-}
+    function handleContextMenu(e, el) { 
+        e.preventDefault(); 
+        selectedPath = el.dataset.path; 
+        selectedName = el.dataset.name; 
+        const menu = document.getElementById('contextMenu'); 
+        
+        let x = e.pageX;
+        let y = e.pageY;
+        
+        // Prevent overflow
+        if (x + 200 > window.innerWidth) x -= 200;
+        if (y + 150 > window.innerHeight) y -= 150;
 
-/**
- * UI Modals
- */
-function uiAlert(message, title = "Notice") {
-    document.getElementById('alertText').innerText = message;
-    document.getElementById('alertTitle').innerText = title;
-    openModal('alertModal');
-}
+        menu.style.left = x + 'px'; 
+        menu.style.top = y + 'px'; 
+        menu.style.display = 'block'; 
+    }
+    document.addEventListener('click', () => document.getElementById('contextMenu').style.display = 'none');
 
-function uiConfirm(message, onOk, title = "Confirm Action") {
-    document.getElementById('confirmText').innerText = message;
-    document.getElementById('confirmTitle').innerText = title;
-    const okBtn = document.getElementById('confirmOkBtn');
-    const newBtn = okBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newBtn, okBtn);
-    newBtn.onclick = () => { onOk(); closeModal('confirmModal'); };
-    openModal('confirmModal');
-}
+    function openMediaViewer(path) {
+        // We might need to load the full item info if we're on a paginated search
+        const item = currentItems.find(i => i.path === path);
+        if (!item) return loadMediaDirect(path);
 
-function uiPrompt(message, defaultValue, onOk, title = "Input Required") {
-    document.getElementById('promptText').innerText = message;
-    document.getElementById('promptTitle').innerText = title;
-    const input = document.getElementById('promptInput');
-    input.value = defaultValue;
-    const okBtn = document.getElementById('promptOkBtn');
-    const newBtn = okBtn.cloneNode(true);
-    okBtn.parentNode.replaceChild(newBtn, okBtn);
-    newBtn.onclick = () => { onOk(input.value); closeModal('promptModal'); };
-    openModal('promptModal');
-    setTimeout(() => input.focus(), 300);
-}
-
-function openModal(id) {
-    const m = document.getElementById(id);
-    m.style.display = 'flex';
-    setTimeout(() => m.classList.add('active'), 10);
-}
-
-function closeModal(id) {
-    const m = document.getElementById(id);
-    m.classList.remove('active');
-    setTimeout(() => {
-        m.style.display = 'none';
-        if (id === 'mediaModal') {
-            const body = document.getElementById('mediaBody');
-            const media = body.querySelector('audio, video');
-            if (media) media.pause();
-            body.innerHTML = '';
-        }
-    }, 200);
-}
-
-function openFolderModal() { openModal('folderModal'); }
-
-function handleItemDblClickSelf(path, name, ext) {
-    const imgExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'];
-    const videoExts = ['mp4', 'webm', 'ogg'];
-    const audioExts = ['mp3', 'wav', 'ogg'];
-
-    const mediaBody = document.getElementById('mediaBody');
-    const mediaTitle = document.getElementById('mediaTitle');
-    const downloadUrl = window.location.pathname + `?download=${encodeURIComponent(path)}&t=${Date.now()}`;
-
-    mediaTitle.innerText = name;
-    mediaBody.innerHTML = '<div style="color:white">Loading...</div>';
-
-    if (imgExts.includes(ext)) {
-        const img = new Image();
-        img.onload = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(img); };
-        img.onerror = () => { mediaBody.innerHTML = '<div style="color:white; padding: 20px;">Failed to load image.</div>'; };
-        img.src = downloadUrl;
-        openModal('mediaModal');
-    } else if (videoExts.includes(ext)) {
-        const video = document.createElement('video');
-        video.controls = true; video.autoplay = true; video.preload = "metadata"; video.src = downloadUrl;
-        video.onloadeddata = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(video); };
-        video.onerror = () => { mediaBody.innerHTML = '<div style="color:white">Failed to load video.</div>'; };
-        openModal('mediaModal');
-    } else if (audioExts.includes(ext)) {
-        const audio = document.createElement('audio');
-        audio.controls = true; audio.autoplay = true; audio.preload = "metadata"; audio.src = downloadUrl;
-        audio.onloadeddata = () => { mediaBody.innerHTML = ''; mediaBody.appendChild(audio); };
-        audio.onerror = () => { mediaBody.innerHTML = '<div style="color:white">Failed to load audio.</div>'; };
+        mediaItems = currentItems.filter(i => !i.isDir && viewableExts.includes(i.type.toLowerCase()));
+        currentMediaIndex = mediaItems.findIndex(i => i.path === path);
+        
+        if (currentMediaIndex === -1) loadMediaDirect(path);
+        else loadMedia();
         openModal('mediaModal');
     }
-}
 
-document.addEventListener('click', () => menu.style.display = 'none');
-window.onclick = (e) => { if (e.target.classList.contains('modal')) closeModal(e.target.id); };
-
-function toggleSelectAll(master) {
-    document.getElementsByName('selected_items[]').forEach(cb => cb.checked = master.checked);
-    updateBulkBtn();
-}
-
-function updateBulkBtn() {
-    const count = document.querySelectorAll('input[name="selected_items[]"]:checked').length;
-    document.getElementById('bulkDeleteBtn').disabled = count === 0;
-    document.getElementById('bulkDeleteBtn').innerHTML = count > 0 ? `🗑️ Delete (${count})` : `🗑️ Delete`;
-    
-    document.getElementById('bulkZipBtn').disabled = count === 0;
-    document.getElementById('bulkZipBtn').innerHTML = count > 0 ? `📦 ZIP (${count})` : `📦 ZIP & Download`;
-}
-
-function formatBytes(bytes, decimals = 2) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-/**
- * Upload Logic
- */
-async function uploadItems(type) {
-    const input = type === 'folder' ? document.getElementById('folderUploadInput') : document.getElementById('uploadInput');
-    if (!input.files.length) return;
-    const files = Array.from(input.files);
-    
-    let batch = files.map(f => ({
-        file: f,
-        relativePath: f.webkitRelativePath || ""
-    }));
-
-    processUploadBatch(batch);
-    input.value = ''; // Reset input
-}
-
-function abortUpload() {
-    if (currentXhr) {
-        currentXhr.abort();
-        currentXhr = null;
-        uiAlert("Upload process stopped.", "Stopped");
-        location.reload();
+    function loadMedia() {
+        const item = mediaItems[currentMediaIndex];
+        const container = document.getElementById('mediaContainer');
+        document.getElementById('mediaTitle').innerText = item.name;
+        document.getElementById('mediaSubtitle').innerText = `${item.type} • ${item.size_f}`;
+        const ext = item.type.toLowerCase();
+        const url = `?download=${encodeURIComponent(item.path)}&t=${Date.now()}`;
+        
+        container.style.opacity = '0';
+        setTimeout(() => {
+            if (['mp4','webm','ogg'].includes(ext)) {
+                container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${url}"></video>`;
+            } else if (['mp3','wav'].includes(ext)) {
+                container.innerHTML = `
+                    <div class="audio-player-wrapper">
+                        <div class="vinyl-disc" id="vinylDisc">
+                            <div class="vinyl-label">🎵</div>
+                        </div>
+                        <div style="width:100%; text-align:center;">
+                            <audio id="mainAudio" controls autoplay src="${url}"></audio>
+                        </div>
+                    </div>`;
+                
+                const audio = document.getElementById('mainAudio');
+                const disc = document.getElementById('vinylDisc');
+                audio.onplay = () => disc.classList.add('playing');
+                audio.onpause = () => disc.classList.remove('playing');
+                audio.onended = () => disc.classList.remove('playing');
+                if (!audio.paused) disc.classList.add('playing');
+            } else {
+                container.innerHTML = `<img src="${url}" style="max-height:70vh; max-width:100%">`;
+            }
+            container.style.opacity = '1';
+        }, 150);
     }
-}
-</script>
+
+    function loadMediaDirect(path) {
+        const container = document.getElementById('mediaContainer');
+        const name = path.split('/').pop();
+        const ext = name.split('.').pop().toLowerCase();
+        document.getElementById('mediaTitle').innerText = name;
+        const url = `?download=${encodeURIComponent(path)}&t=${Date.now()}`;
+        if (['mp4','webm','ogg'].includes(ext)) container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${url}"></video>`;
+        else if (['mp3','wav'].includes(ext)) container.innerHTML = `<audio controls autoplay src="${url}"></audio>`;
+        else container.innerHTML = `<img src="${url}" style="max-height:70vh; max-width:100%">`;
+    }
+
+    function navigateMedia(d) { 
+        if (mediaItems.length <= 1) return;
+        currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length; 
+        loadMedia(); 
+    }
+
+    function uiConfirm(msg, ok) { document.getElementById('confirmText').innerText = msg; document.getElementById('confirmOkBtn').onclick = () => { ok(); closeModal('confirmModal'); }; openModal('confirmModal'); }
+    function uiAlert(msg) { document.getElementById('alertText').innerText = msg; openModal('alertModal'); }
+    
+    async function submitNewFolder() { 
+        const n = document.getElementById('newFolderName').value.trim(); 
+        if (!n) return;
+        const fd = new FormData(); fd.append('newfolder', n); 
+        try {
+            const response = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd}); 
+            const res = await response.json();
+            if (res.success) {
+                closeModal('folderModal'); 
+                document.getElementById('newFolderName').value = "";
+                fetchExplorer(currentDir, currentSearch, currentPage); 
+            } else {
+                uiAlert("Folder already exists or invalid name.");
+            }
+        } catch(e) { uiAlert("Error creating folder."); }
+    }
+
+    function handleSearchKeyUp(e) { if(e.key === 'Enter') fetchExplorer(currentDir, e.target.value.trim(), 1); }
+    function clearSearch() { document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
+    function abortUpload() { if(currentXhr) currentXhr.abort(); location.reload(); }
+    
+    function submitBulkDelete() {
+        const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
+        uiConfirm(`Delete ${checked.length} items?`, async () => {
+            const fd = new FormData(); fd.append('bulk_delete', '1'); checked.forEach(v => fd.append('selected_items[]', v));
+            await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd}); 
+            fetchExplorer(currentDir, currentSearch, currentPage);
+        });
+    }
+
+    function submitBulkZip() {
+        const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
+        if (!checked.length) return;
+        const form = document.createElement('form'); form.method = 'POST'; form.action = window.location.pathname;
+        const zipI = document.createElement('input'); zipI.type = 'hidden'; zipI.name = 'bulk_zip'; zipI.value = '1'; form.appendChild(zipI);
+        checked.forEach(v => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'selected_items[]'; i.value = v; form.appendChild(i); });
+        document.body.appendChild(form); form.submit();
+    }
+    
+    function renamePrompt() {
+        document.getElementById('promptTitle').innerText = "Rename"; 
+        document.getElementById('promptText').innerText = `New name for "${selectedName}":`; 
+        document.getElementById('promptInput').value = selectedName;
+        document.getElementById('promptOkBtn').onclick = async () => {
+            const n = document.getElementById('promptInput').value.trim();
+            if (!n) return;
+            const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', n);
+            await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd}); 
+            closeModal('promptModal'); 
+            fetchExplorer(currentDir, currentSearch, currentPage);
+        };
+        openModal('promptModal');
+    }
+
+    function movePrompt() {
+        document.getElementById('promptTitle').innerText = "Move Item"; 
+        document.getElementById('promptText').innerText = "Target path (relative to root):"; 
+        document.getElementById('promptInput').value = "";
+        document.getElementById('promptOkBtn').onclick = async () => {
+            const t = document.getElementById('promptInput').value.trim();
+            if (!t) return;
+            const fd = new FormData(); fd.append('move_file', selectedPath); fd.append('move_target', t);
+            await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd}); 
+            closeModal('promptModal'); 
+            fetchExplorer(currentDir, currentSearch, currentPage);
+        };
+        openModal('promptModal');
+    }
+
+    function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
+    function formatBytes(bytes, decimals = 2) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024, dm = decimals < 0 ? 0 : decimals, sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+    }
+    </script>
 </body>
 </html>
 <?php ob_end_flush(); ?>
