@@ -424,6 +424,27 @@ if ($isAjax) {
             </div>
         </header>
 
+        <!-- STICKY SUB-HEADER: Redesigned and fixed at top -->
+        <div class="breadcrumb-bar">
+            <div class="breadcrumb-container">
+                <div class="breadcrumb-trail" id="breadcrumbTrail"></div>
+                <div class="breadcrumb-actions">
+                    <div id="bulkActions" class="bulk-actions-group" style="display: none;">
+                        <button class="btn btn-tonal-danger" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
+                        <button class="btn btn-tonal-primary" id="bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</button>
+                    </div>
+                    <div class="status-controls">
+                        <div id="paginationContainer" class="pagination-group" style="display:none;">
+                            <button class="pagination-btn" id="prevPageBtn" onclick="navigatePage(-1)">❮</button>
+                            <span class="page-indicator" id="pageIndicator">1</span>
+                            <button class="pagination-btn" id="nextPageBtn" onclick="navigatePage(1)">❯</button>
+                        </div>
+                        <div class="item-counter" id="itemCounter">0 items</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="explorer-body">
             <div class="drop-hint">🚀 Drop here to upload</div>
             
@@ -443,21 +464,6 @@ if ($isAjax) {
                     <div id="uploadSizeBadge" style="font-size: 0.7rem; color: #888; margin-top: 4px; font-weight: 500;">0 / 0</div>
                 </div>
                 <button class="btn btn-outline" style="color: var(--danger); padding: 8px 12px; font-size: 0.75rem;" onclick="abortUpload()">Abort</button>
-            </div>
-
-            <div class="breadcrumb-container">
-                <div class="breadcrumb-trail" id="breadcrumbTrail"></div>
-                <div style="display: flex; align-items: center; gap: 12px;">
-                    <div id="bulkActions" style="display: none; gap: 8px;">
-                        <button class="btn btn-outline" id="bulkZipBtn" onclick="submitBulkZip()" style="padding: 4px 12px; font-size: 0.75rem;background: navajowhite;">📦 Download as ZIP</button>
-                        <button class="btn btn-outline" id="bulkDeleteBtn" onclick="submitBulkDelete()" style="padding: 4px 12px; font-size: 0.75rem; color: #fff;background: red;">🗑️ Delete</button>
-                    </div>
-                    <div id="paginationContainer" style="display:none; gap: 4px;">
-                        <button class="pagination-btn" id="prevPageBtn" onclick="navigatePage(-1)">❮ Previous</button>
-                        <button class="pagination-btn" id="nextPageBtn" onclick="navigatePage(1)">Next ❯</button>
-                    </div>
-                    <div class="item-counter" id="itemCounter">0 items</div>
-                </div>
             </div>
 
             <div class="data-table-container">
@@ -610,12 +616,12 @@ if ($isAjax) {
         // Sorting is now handled server-side for accurate pagination
         const items = currentItems;
 
-        let bcHtml = currentSearch ? `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"` : `<a onclick="fetchExplorer('', '', 1)">Root</a>`;
+        let bcHtml = currentSearch ? `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"` : `<a class="bc-link" onclick="fetchExplorer('', '', 1)">Root</a>`;
         if (!currentSearch) {
             let cum = "";
             currentDir.split('/').filter(p => p).forEach(p => {
                 cum += (cum ? '/' : '') + p;
-                bcHtml += ` <span>/</span> <a onclick="fetchExplorer('${cum.replace(/'/g, "\\'")}', '', 1)">${escapeHtml(p)}</a>`;
+                bcHtml += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${cum.replace(/'/g, "\\'")}', '', 1)">${escapeHtml(p)}</a>`;
             });
         }
         bc.innerHTML = bcHtml;
@@ -627,6 +633,7 @@ if ($isAjax) {
             pagContainer.style.display = 'flex';
             document.getElementById('prevPageBtn').disabled = currentPage <= 1;
             document.getElementById('nextPageBtn').disabled = currentPage >= totalPages;
+            document.getElementById('pageIndicator').innerText = currentPage;
             counter.innerText = `Showing ${Math.min(totalItems, (currentPage - 1) * perPage + 1)}-${Math.min(totalItems, currentPage * perPage)} of ${totalItems}`;
         } else {
             pagContainer.style.display = 'none';
@@ -801,6 +808,14 @@ if ($isAjax) {
             const items = e.dataTransfer.items;
             if (!items) return;
 
+            // FIX: Collect all entries synchronously before starting any async operations.
+            // Browsers often clear the DataTransfer object shortly after the event handler.
+            const initialEntries = [];
+            for (let i = 0; i < items.length; i++) {
+                const entry = items[i].webkitGetAsEntry();
+                if (entry) initialEntries.push(entry);
+            }
+
             let filesToUpload = [];
             async function getFilesFromEntry(entry, path = "") {
                 if (entry.isFile) {
@@ -810,15 +825,31 @@ if ($isAjax) {
                     }));
                 } else if (entry.isDirectory) {
                     const dirReader = entry.createReader();
-                    const entries = await new Promise(resolve => dirReader.readEntries(resolve));
-                    for (const childEntry of entries) await getFilesFromEntry(childEntry, path + entry.name + "/");
+                    // Directories can contain many entries, readEntries must be called until empty.
+                    let allEntries = [];
+                    const readMore = async () => {
+                        return new Promise(resolve => {
+                            dirReader.readEntries(async results => {
+                                if (results.length > 0) {
+                                    allEntries = allEntries.concat(results);
+                                    await readMore();
+                                    resolve();
+                                } else {
+                                    resolve();
+                                }
+                            });
+                        });
+                    };
+                    await readMore();
+                    for (const childEntry of allEntries) await getFilesFromEntry(childEntry, path + entry.name + "/");
                 }
             }
 
-            for (const item of items) {
-                const entry = item.webkitGetAsEntry();
-                if (entry) await getFilesFromEntry(entry);
+            // Process collected entries sequentially to build the final file list
+            for (const entry of initialEntries) {
+                await getFilesFromEntry(entry);
             }
+            
             if (filesToUpload.length) processUploadBatch(filesToUpload);
         });
     }
@@ -888,7 +919,7 @@ if ($isAjax) {
         if (checkedCount > 0) {
             bulkActions.style.display = 'flex';
             deleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
-            zipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
+            zipBtn.innerHTML = `📦 ZIP (${checkedCount})`;
         } else {
             bulkActions.style.display = 'none';
         }
