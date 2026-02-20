@@ -104,7 +104,7 @@ function renderExplorer() {
         bc.innerHTML = bcHtml;
     }
 
-    const totalPages = currentSearch ? Math.ceil(totalItems / perPage) : 1;
+    const totalPages = Math.ceil(totalItems / perPage);
     const pagContainer = document.getElementById('paginationContainer');
     if (currentSearch && totalPages > 1) {
         pagContainer.style.display = 'flex';

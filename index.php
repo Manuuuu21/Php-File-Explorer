@@ -133,15 +133,34 @@ $adminRealBase = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'files');
 
 // --- PERFORMANCE OPTIMIZATION ---
 $cacheFile = __DIR__ . '/.explorer_cache';
-$searchCacheDir = __DIR__ . '/.explorer_search_cache';
-if (!$is_shared_view && !file_exists($searchCacheDir)) @mkdir($searchCacheDir, 0777, true);
+$globalIndexFile = __DIR__ . '/.index.json';
 
-function invalidateCache($statsCacheFile, $searchCacheDir) {
+function invalidateCache($statsCacheFile, $globalIndexFile) {
     if (file_exists($statsCacheFile)) @unlink($statsCacheFile);
-    if (is_dir($searchCacheDir)) {
-        $files = glob($searchCacheDir . '/*');
-        foreach($files as $file) if(is_file($file)) @unlink($file);
+    if (file_exists($globalIndexFile)) @unlink($globalIndexFile);
+}
+
+function getGlobalIndex($realBase, $globalIndexFile) {
+    if (file_exists($globalIndexFile)) {
+        $data = json_decode(file_get_contents($globalIndexFile), true);
+        if (is_array($data)) return $data;
     }
+    
+    $allItems = [];
+    if (!is_dir($realBase)) return [];
+    $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($realBase, RecursiveDirectoryIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
+    foreach ($it as $fileInfo) {
+        $allItems[] = [
+            'name' => $fileInfo->getFilename(),
+            'path' => ltrim(str_replace($realBase, '', $fileInfo->getPathname()), DIRECTORY_SEPARATOR),
+            'isDir' => $fileInfo->isDir(), 
+            'mtime' => $fileInfo->getMTime(),
+            'size' => $fileInfo->isDir() ? -1 : $fileInfo->getSize(),
+            'type' => $fileInfo->isDir() ? 'Folder' : strtoupper(pathinfo($fileInfo->getFilename(), PATHINFO_EXTENSION))
+        ];
+    }
+    file_put_contents($globalIndexFile, json_encode($allItems));
+    return $allItems;
 }
 
 function getDirectorySize($path) {
@@ -225,7 +244,7 @@ if (!$is_shared_view) {
                 }
             }
         }
-        if ($successCount > 0) invalidateCache($cacheFile, $searchCacheDir);
+        if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
         sendJsonResponse(['success' => true, 'count' => $successCount]);
     }
 
@@ -235,7 +254,7 @@ if (!$is_shared_view) {
             $file = safePath($realBase . DIRECTORY_SEPARATOR . $itemPath, $realBase);
             if ($file && $file !== $realBase) recursiveDelete($file);
         }
-        invalidateCache($cacheFile, $searchCacheDir);
+        invalidateCache($cacheFile, $globalIndexFile);
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
         exit;
@@ -257,7 +276,7 @@ if (!$is_shared_view) {
                     }
                 }
             }
-            if ($successCount > 0) invalidateCache($cacheFile, $searchCacheDir);
+            if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
         } else {
             $error = "Invalid target directory.";
         }
@@ -333,7 +352,7 @@ if (!$is_shared_view) {
             if (!file_exists($newFolderPath)) {
                  if (@mkdir($newFolderPath, 0777, true)) {
                      $success = true;
-                     invalidateCache($cacheFile, $searchCacheDir);
+                     invalidateCache($cacheFile, $globalIndexFile);
                  }
             }
         }
@@ -344,7 +363,7 @@ if (!$is_shared_view) {
     if (isset($_GET['delete'])) {
         $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['delete'], $realBase);
         if ($file && $file !== $realBase) {
-            if (recursiveDelete($file)) invalidateCache($cacheFile, $searchCacheDir);
+            if (recursiveDelete($file)) invalidateCache($cacheFile, $globalIndexFile);
         }
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
@@ -354,7 +373,7 @@ if (!$is_shared_view) {
         $old = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['rename_old'], $realBase);
         $newName = basename($_POST['rename_new']);
         if ($old && $old !== $realBase && !empty($newName)) {
-            if (rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName)) invalidateCache($cacheFile, $searchCacheDir);
+            if (rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName)) invalidateCache($cacheFile, $globalIndexFile);
         }
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
@@ -364,7 +383,7 @@ if (!$is_shared_view) {
         $targetDir = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['move_target'], $realBase);
         if ($file && $targetDir && is_dir($targetDir)) {
             if (is_dir($file) && ($file === $targetDir || strpos($targetDir, $file . DIRECTORY_SEPARATOR) === 0)) {}
-            else { if (rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file))) invalidateCache($cacheFile, $searchCacheDir); }
+            else { if (rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file))) invalidateCache($cacheFile, $globalIndexFile); }
         }
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
@@ -418,28 +437,13 @@ if (isset($_GET['download'])) {
 $allItems = [];
 $isSearch = !empty($searchQuery) && !$is_shared_view; 
 if ($isSearch) {
-    // --- SEARCH CACHING LOGIC ---
-    $searchCacheKey = md5(strtolower($searchQuery));
-    $searchCacheFile = $searchCacheDir . DIRECTORY_SEPARATOR . $searchCacheKey;
-
-    if (file_exists($searchCacheFile)) {
-        $allItems = json_decode(file_get_contents($searchCacheFile), true);
-    } else {
-        $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($realBase, RecursiveDirectoryIterator::SKIP_DOTS), RecursiveIteratorIterator::SELF_FIRST);
-        foreach ($it as $fileInfo) {
-            if (stripos($fileInfo->getFilename(), $searchQuery) !== false) {
-                $allItems[] = [
-                    'name' => $fileInfo->getFilename(),
-                    'path' => ltrim(str_replace($realBase, '', $fileInfo->getPathname()), DIRECTORY_SEPARATOR),
-                    'isDir' => $fileInfo->isDir(), 'mtime' => $fileInfo->getMTime(),
-                    'mtime_f' => date("Y-m-d H:i", $fileInfo->getMTime()),
-                    'size' => $fileInfo->isDir() ? -1 : $fileInfo->getSize(),
-                    'size_f' => $fileInfo->isDir() ? '--' : formatSize($fileInfo->getSize()),
-                    'type' => $fileInfo->isDir() ? 'Folder' : strtoupper(pathinfo($fileInfo->getFilename(), PATHINFO_EXTENSION))
-                ];
-            }
+    $allFiles = getGlobalIndex($realBase, $globalIndexFile);
+    foreach ($allFiles as $item) {
+        if (stripos($item['name'], $searchQuery) !== false) {
+            $item['mtime_f'] = date("Y-m-d H:i", $item['mtime']);
+            $item['size_f'] = $item['isDir'] ? '--' : formatSize($item['size']);
+            $allItems[] = $item;
         }
-        file_put_contents($searchCacheFile, json_encode($allItems));
     }
 } else {
     $scanned = @scandir($currentDir);
