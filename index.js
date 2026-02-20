@@ -120,7 +120,7 @@ function renderExplorer() {
     let html = "";
     if (!currentSearch && currentDir !== "" && currentPage === 1) {
         const parent = currentDir.split('/').slice(0, -1).join('/');
-        html += `<div class="table-row folder" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
+        html += `<div class="table-row folder" style="position:sticky;top:44px;background:white;z-index:99;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
     }
 
     items.forEach(f => {
