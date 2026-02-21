@@ -142,7 +142,7 @@ function getGlobalIndex($realBase, $globalIndexFile) {
     foreach ($it as $fileInfo) {
         $allItems[] = [
             'name' => $fileInfo->getFilename(),
-            'path' => ltrim(str_replace($realBase, '', $fileInfo->getPathname()), DIRECTORY_SEPARATOR),
+            'path' => str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase, '', $fileInfo->getPathname()), DIRECTORY_SEPARATOR)),
             'isDir' => $fileInfo->isDir(), 
             'mtime' => $fileInfo->getMTime(),
             'size' => $fileInfo->isDir() ? -1 : $fileInfo->getSize(),
@@ -189,7 +189,7 @@ $reqDir = $_GET['dir'] ?? '';
 $searchQuery = $_GET['search'] ?? '';
 $isAjax = (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') || isset($_GET['ajax']);
 $currentDir = safePath($baseDir . DIRECTORY_SEPARATOR . $reqDir, $realBase) ?: $realBase;
-$relativeDir = ltrim(str_replace($realBase, '', $currentDir), DIRECTORY_SEPARATOR);
+$relativeDir = str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase, '', $currentDir), DIRECTORY_SEPARATOR));
 
 
 // Pagination & Sort Params
@@ -396,7 +396,7 @@ if (isset($_GET['download'])) {
             'ogg'=>'video/ogg','mp3'=>'audio/mpeg','wav'=>'audio/wav','pdf' => 'application/pdf'
         ];
         $contentType = $mimeTypes[$ext] ?? 'application/octet-stream';
-        $disposition = isset($_GET['force']) || $is_shared_view ? 'attachment' : 'inline';
+        $disposition = (isset($_GET['force']) || ($is_shared_view && !isset($_GET['inline']))) ? 'attachment' : 'inline';
         
         header('Content-Type: ' . $contentType);
         header('Content-Disposition: ' . $disposition . '; filename="' . basename($file) . '"');
@@ -431,7 +431,7 @@ $allItems = [];
 if ($is_single_file_share) {
     $fPath = $single_shared_file_info;
     $f = basename($fPath);
-    $item_path_for_js = ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR);
+    $item_path_for_js = str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR));
     $allItems[] = [
         'name' => $f, 'path' => $item_path_for_js,
         'isDir' => false, 'mtime' => filemtime($fPath),
@@ -441,7 +441,7 @@ if ($is_single_file_share) {
         'type' => strtoupper(pathinfo($f, PATHINFO_EXTENSION))
     ];
 } else {
-    $isSearch = !empty($searchQuery) && !$is_shared_view; 
+    $isSearch = !empty($searchQuery) && !$is_shared_view;
     if ($isSearch) {
         $allFiles = getGlobalIndex($realBase, $globalIndexFile);
         foreach ($allFiles as $item) {
@@ -457,8 +457,7 @@ if ($is_single_file_share) {
             foreach ($scanned as $f) {
                 if ($f === '.' || $f === '..') continue;
                 $fPath = $currentDir . DIRECTORY_SEPARATOR . $f;
-                // The path sent to JS must be relative to the $realBase (admin root or share root)
-                $item_path_for_js = ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR);
+                $item_path_for_js = str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR));
 
                 $allItems[] = [
                     'name' => $f, 'path' => $item_path_for_js,
@@ -475,7 +474,7 @@ if ($is_single_file_share) {
 
 // SERVER SIDE SORTING
 usort($allItems, function($a, $b) use ($sortKey, $sortOrder) {
-    if ($a['isDir'] !== $b['isDir']) return $b['isDir'] - $a['isDir'];
+    if ($a['isDir'] !== $b['isDir']) return $b['isDir'] ? 1 : -1;
     $valA = $a[$sortKey]; $valB = $b[$sortKey];
     if (is_string($valA)) return strnatcasecmp($valA, $valB) * $sortOrder;
     return ($valA - $valB) * $sortOrder;
@@ -536,7 +535,7 @@ if ($isAjax) {
     <div class="sidebar-overlay" onclick="toggleSidebar(false)"></div>
     <!-- SIDEBAR -->
     <aside class="sidebar" id="sidebar">
-        <div class="brand">
+        <div style="margin-bottom:15px;" class="brand">
             <span>📂 Explorer</span>
             <div class="close-sidebar" onclick="toggleSidebar(false)">✕</div>
         </div>
@@ -595,9 +594,21 @@ if ($isAjax) {
                 <div class="breadcrumb-actions">
                     <?php if (!$is_shared_view): ?>
                     <div id="bulkActions" class="bulk-actions-group" style="display: none;">
-                        <button class="btn btn-tonal-danger" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
-                        <button class="btn btn-tonal-primary" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
-                        <button class="btn btn-tonal-primary" id="bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</button>
+                        <div class="desktop-bulk-actions">
+                            <button class="btn btn-tonal-danger" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
+                            <button class="btn btn-tonal-primary" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
+                            <button class="btn btn-tonal-primary" id="bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</button>
+                        </div>
+                        <div class="mobile-bulk-actions">
+                            <div class="breadcrumb-dropdown">
+                                <button class="btn btn-tonal-primary" onclick="toggleBreadcrumbDropdown(this)">⚡ Actions</button>
+                                <div class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
+                                    <a onclick="submitBulkDelete()">🗑️ Delete</a>
+                                    <a onclick="movePrompt()">➡️ Move</a>
+                                    <a onclick="submitBulkZip()">📦 ZIP</a>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                     <?php endif; ?>
                     <div class="status-controls">
@@ -644,6 +655,8 @@ if ($isAjax) {
         </div>
     </main>
     
+    <div id="snackbarContainer" class="snackbar-container"></div>
+    
     <!-- MODALS -->
     <div id="mediaModal" class="modal"><div class="modal-content"><div class="media-header"><div style="display: flex; flex-direction: column; overflow: hidden; gap: 4px;"><span id="mediaTitle">Viewer</span><span id="mediaSubtitle">Preview</span></div><span onclick="closeModal('mediaModal')" style="cursor:pointer; font-size:32px; line-height: 1;">&times;</span></div><div id="mediaBody"><button class="nav-btn nav-prev" onclick="navigateMedia(-1)">❮</button><div id="mediaContainer"></div><button class="nav-btn nav-next" onclick="navigateMedia(1)">❯</button></div></div></div>
     
@@ -675,11 +688,7 @@ if ($isAjax) {
     currentPage = <?= $page ?>;
     sortKey = '<?= addslashes($sortKey) ?>';
     sortOrder = <?= $sortOrder ?>;
-    <?php if (!$is_shared_view && file_exists($globalIndexFile)): ?>
-    window.fileIndex = <?= file_get_contents($globalIndexFile) ?>;
-    <?php else: ?>
     window.fileIndex = [];
-    <?php endif; ?>
     
     window.onload = () => {
         if (!isSharedView) setupDragAndDrop();

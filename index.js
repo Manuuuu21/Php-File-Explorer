@@ -10,6 +10,11 @@ let sortOrder = 1;
 let isSharedView = false;
 let isSingleFileShare = false;
 let sharedFolderName = "";
+let clipboardItems = [];
+let clipboardSourceDir = "";
+let activePaths = [];
+let lastClickTime = 0;
+let lastClickPath = null;
 
 // --- INTERNAL STATE ---
 let selectedPath = null;
@@ -77,6 +82,29 @@ document.addEventListener('keydown', (e) => {
         document.querySelectorAll('.modal.active').forEach(m => closeModal(m.id));
         if (!isSharedView) toggleSidebar(false);
     }
+    
+    // CTRL+X (Cut)
+    if (e.ctrlKey && e.key.toLowerCase() === 'x') {
+        if (isSharedView) return;
+        const selected = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
+        if (selected.length > 0) {
+            clipboardItems = selected;
+            clipboardSourceDir = currentDir;
+            renderExplorer(); // Update opacity
+            showSnackbar(`${selected.length} items cut to clipboard`, { actionText: '', actionUrl: '#' });
+        } else if (activePaths.length > 0) {
+            clipboardItems = [...activePaths];
+            clipboardSourceDir = currentDir;
+            renderExplorer();
+            showSnackbar(`${activePaths.length} items cut to clipboard`, { actionText: '', actionUrl: '#' });
+        }
+    }
+
+    // CTRL+V (Paste)
+    if (e.ctrlKey && e.key.toLowerCase() === 'v') {
+        if (isSharedView || clipboardItems.length === 0) return;
+        pasteItems();
+    }
 });
 
 function toggleBreadcrumbDropdown(btn) {
@@ -100,27 +128,36 @@ function renderExplorer() {
     const counter = document.getElementById('itemCounter');
     const items = currentItems;
 
-    if (isSharedView) {
-        let rootName = sharedFolderName || 'Shared Files';
-        if (isSingleFileShare) {
-            bc.innerHTML = '';
-        } else {
-            bc.innerHTML = `<a class="bc-link" onclick="fetchExplorer('', '', 1)">${escapeHtml(rootName)}</a>`;
-            let cum = "";
-            currentDir.split('/').filter(p => p).forEach(p => {
-                cum += (cum ? '/' : '') + p;
-                bc.innerHTML += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${escapeJs(cum)}', '', 1)">${escapeHtml(p)}</a>`;
-            });
-        }
+    let bcHtml = '';
+    const isMobile = window.innerWidth <= 768;
+    
+    if (isSingleFileShare) {
+        bcHtml = '';
+    } else if (currentSearch) {
+        bcHtml = `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"`;
     } else {
-        let bcHtml = '';
-        if (currentSearch) {
-            bcHtml = `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"`;
-        } else {
-            const pathParts = currentDir.split('/').filter(p => p);
-            bcHtml = `<a class="bc-link" onclick="fetchExplorer('', '', 1)">Root</a>`;
-            let cumulativePath = "";
+        const pathParts = currentDir.split('/').filter(p => p);
+        let rootName = isSharedView ? (sharedFolderName || 'Shared Files') : 'Root';
+        let cumulativePath = "";
 
+        if (isMobile && pathParts.length > 0) {
+            bc.classList.add('mobile-bc');
+            bcHtml = `<div class="breadcrumb-dropdown">
+                <a class="bc-link" onclick="fetchExplorer('', '', 1)">${escapeHtml(rootName)}</a>
+                <span class="bc-sep">/</span>
+                <span class="breadcrumb-more-btn" onclick="toggleBreadcrumbDropdown(this)">...</span>
+                <div class="breadcrumb-dropdown-content">`;
+            
+            pathParts.forEach((p, idx) => {
+                cumulativePath += (cumulativePath ? '/' : '') + p;
+                bcHtml += `<a onclick="fetchExplorer('${escapeJs(cumulativePath)}', '', 1)">${escapeHtml(p)}</a>`;
+            });
+            
+            bcHtml += `</div></div>`;
+        } else {
+            bc.classList.remove('mobile-bc');
+            bcHtml = `<a class="bc-link" onclick="fetchExplorer('', '', 1)">${escapeHtml(rootName)}</a>`;
+            
             if (pathParts.length > 3) {
                 bcHtml += ` <span class="bc-sep">/</span> <div class="breadcrumb-dropdown"><span class="breadcrumb-more-btn" onclick="toggleBreadcrumbDropdown(this)">...</span><div class="breadcrumb-dropdown-content">`;
                 for (let i = 0; i < pathParts.length - 2; i++) {
@@ -139,8 +176,8 @@ function renderExplorer() {
                 });
             }
         }
-        bc.innerHTML = bcHtml;
     }
+    bc.innerHTML = bcHtml;
 
     const totalPages = Math.ceil(totalItems / perPage);
     const pagContainer = document.getElementById('paginationContainer');
@@ -158,30 +195,36 @@ function renderExplorer() {
     let html = "";
     if (!currentSearch && currentDir !== "" && currentPage === 1) {
         const parent = currentDir.split('/').slice(0, -1).join('/');
-        html += `<div class="table-row folder" style="position:sticky;top:44px;background:white;z-index:1;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
+        html += `<div class="table-row folder" style="position:sticky;top:40px;background:white;z-index:1;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
     }
 
     items.forEach(f => {
-        let nameAttributes = '';
+        let actionParams = '';
         if (f.isDir) {
-            nameAttributes = `onclick="fetchExplorer('${escapeJs(f.path)}', '', 1)"`;
+            actionParams = `fetchExplorer('${escapeJs(f.path)}', '', 1)`;
         } else {
             const isMedia = viewableExts.includes(f.type.toLowerCase());
             if (isMedia) {
-                nameAttributes = `onclick="openMediaViewer('${escapeJs(f.path)}')" style="cursor: pointer;"`;
+                actionParams = `openMediaViewer('${escapeJs(f.path)}')`;
             }
         }
 
-        // FIXED: Using f.path instead of f.name to ensure subfolder downloads work
+        const isCut = clipboardItems.includes(f.path);
+        const isActive = activePaths.includes(f.path);
+        
         let downloadBtn = !f.isDir ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
         let contextMenu = isSharedView ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
-        let checkbox = isSharedView ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" onclick="updateBulkBtn()"></div>`;
+        let checkbox = isSharedView ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" ${isActive ? 'checked' : ''} onclick="event.stopPropagation(); updateBulkBtn()"></div>`;
         let actions = isSharedView ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete">🗑️</span>`;
 
         html += `
-        <div class="table-row ${f.isDir ? 'folder' : ''}" ${contextMenu} data-path="${escapeHtml(f.path)}" data-name="${escapeHtml(f.name)}">
+        <div class="table-row ${f.isDir ? 'folder' : ''} ${isCut ? 'cut-item' : ''} ${isActive ? 'active-row' : ''}" 
+             ${contextMenu} 
+             data-path="${escapeHtml(f.path)}" 
+             data-name="${escapeHtml(f.name)}"
+             onclick="handleRowClick(event, '${escapeJs(f.path)}', ${f.isDir ? `'dir'` : `'file'`})">
             ${checkbox}
-            <div class="col-name" ${nameAttributes}>
+            <div class="col-name">
                 <span class="icon">${f.isDir ? '📁' : '📄'}</span>
                 <div style="display: flex; flex-direction: column; min-width: 0;">
                     <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>
@@ -203,6 +246,110 @@ function renderExplorer() {
     }
 }
 
+window.addEventListener('resize', () => {
+    if (currentItems.length > 0) renderExplorer();
+});
+
+function handleRowClick(e, path, itemType) {
+    if (e.target.tagName === 'INPUT' || e.target.classList.contains('action-icon')) return;
+    
+    const now = Date.now();
+    const isDoubleClick = (path === lastClickPath && (now - lastClickTime) < 300);
+
+    if (e.ctrlKey) {
+        if (activePaths.includes(path)) {
+            activePaths = activePaths.filter(p => p !== path);
+        } else {
+            activePaths.push(path);
+        }
+        renderExplorer();
+    } else {
+        if (isDoubleClick) {
+            lastClickTime = 0;
+            lastClickPath = null;
+            
+            if (itemType === 'dir') {
+                fetchExplorer(path, '', 1);
+            } else {
+                const ext = path.split('.').pop().toLowerCase();
+                if (viewableExts.includes(ext)) {
+                    openMediaViewer(path);
+                }
+            }
+        } else {
+            lastClickTime = now;
+            lastClickPath = path;
+            activePaths = [path];
+            renderExplorer();
+        }
+    }
+}
+
+function showSnackbar(message, options = {}) {
+    const container = document.getElementById('snackbarContainer');
+    const snackbar = document.createElement('div');
+    snackbar.className = 'snackbar';
+    
+    let actionsHtml = '';
+    if (options.actionText) {
+        actionsHtml = `<button class="snackbar-btn" onclick="${options.actionCallback || ''}">${options.actionText}</button>`;
+    }
+    
+    snackbar.innerHTML = `
+        <div class="snackbar-content">${message}</div>
+        <div class="snackbar-actions">
+            ${actionsHtml}
+            <button class="snackbar-close" onclick="this.parentElement.parentElement.classList.add('out'); setTimeout(() => this.parentElement.parentElement.remove(), 300)">✕</button>
+        </div>
+    `;
+    
+    container.appendChild(snackbar);
+    
+    if (!options.persistent) {
+        setTimeout(() => {
+            if (snackbar.parentElement) {
+                snackbar.classList.add('out');
+                setTimeout(() => snackbar.remove(), 300);
+            }
+        }, options.duration || 5000);
+    }
+    
+    return snackbar;
+}
+
+async function pasteItems() {
+    const transferSnackbar = showSnackbar('Transferring...', { persistent: true });
+    
+    const fd = new FormData();
+    fd.append('bulk_move', '1');
+    fd.append('move_target', currentDir);
+    clipboardItems.forEach(itemPath => fd.append('selected_items[]', itemPath));
+    
+    const sourceFolder = clipboardSourceDir.split('/').filter(p => p).pop() || 'Root';
+    const destFolder = currentDir.split('/').filter(p => p).pop() || 'Root';
+    const count = clipboardItems.length;
+
+    try {
+        const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
+        
+        transferSnackbar.classList.add('out');
+        setTimeout(() => transferSnackbar.remove(), 300);
+
+        if(result.error) {
+            uiAlert(`Paste failed: ${result.error}`);
+        } else {
+            showSnackbar(`${count} files have been moved from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
+            clipboardItems = [];
+            clipboardSourceDir = "";
+            fetchExplorer(currentDir, currentSearch, currentPage);
+        }
+    } catch(e) { 
+        transferSnackbar.classList.add('out');
+        setTimeout(() => transferSnackbar.remove(), 300);
+        uiAlert("An error occurred during the paste operation."); 
+    }
+}
+
 async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
     try {
         let url = `?dir=${encodeURIComponent(dir)}&search=${encodeURIComponent(search)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1`;
@@ -214,6 +361,9 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
         const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const data = await response.json();
         
+        activePaths = [];
+        lastClickTime = 0;
+        lastClickPath = null;
         currentDir = data.dir; 
         currentSearch = data.search; 
         currentItems = data.items;
@@ -364,11 +514,18 @@ function changeSort(key) { if (sortKey === key) sortOrder *= -1; else { sortKey 
 function toggleSelectAll(m) { document.getElementsByName('selected_items[]').forEach(cb => { cb.checked = m.checked; }); updateBulkBtn(); }
 
 function updateBulkBtn() {
-    const checkboxes = document.querySelectorAll('input[name="selected_items[]"]'); let checkedCount = 0;
+    const checkboxes = document.querySelectorAll('input[name="selected_items[]"]'); 
+    let checkedCount = 0;
+    activePaths = [];
     checkboxes.forEach(cb => {
         const row = cb.closest('.table-row');
-        if (cb.checked) { checkedCount++; if (row) row.classList.add('selected'); }
-        else { if (row) row.classList.remove('selected'); }
+        if (cb.checked) { 
+            checkedCount++; 
+            activePaths.push(cb.value);
+            if (row) row.classList.add('active-row'); 
+        } else { 
+            if (row) row.classList.remove('active-row'); 
+        }
     });
     const bulkActions = document.getElementById('bulkActions');
     if (checkedCount > 0) {
@@ -408,7 +565,11 @@ function loadMedia() {
     document.getElementById('mediaTitle').innerText = item.name;
     document.getElementById('mediaSubtitle').innerText = `${item.type} • ${item.size_f}`;
     const ext = item.type.toLowerCase();
-    const url = `?download=${encodeURIComponent(item.path)}&t=${Date.now()}`;
+    let url = `?download=${encodeURIComponent(item.path)}&t=${Date.now()}`;
+    if (isSharedView) {
+        const shareToken = new URLSearchParams(window.location.search).get('share');
+        url = `?share=${shareToken}&download=${encodeURIComponent(item.path)}&inline=1&t=${Date.now()}`;
+    }
     
     container.style.opacity = '0';
     setTimeout(() => {
