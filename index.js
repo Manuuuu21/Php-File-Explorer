@@ -8,6 +8,7 @@ let perPage = 50;
 let sortKey = 'name';
 let sortOrder = 1;
 let isSharedView = false;
+let isSingleFileShare = false;
 let sharedFolderName = "";
 
 // --- INTERNAL STATE ---
@@ -86,12 +87,16 @@ function renderExplorer() {
 
     if (isSharedView) {
         let rootName = sharedFolderName || 'Shared Files';
-        bc.innerHTML = `<a class="bc-link" onclick="fetchExplorer('', '', 1)">${escapeHtml(rootName)}</a>`;
-        let cum = "";
-        currentDir.split('/').filter(p => p).forEach(p => {
-            cum += (cum ? '/' : '') + p;
-            bc.innerHTML += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${escapeJs(cum)}', '', 1)">${escapeHtml(p)}</a>`;
-        });
+        if (isSingleFileShare) {
+            bc.innerHTML = '';
+        } else {
+            bc.innerHTML = `<a class="bc-link" onclick="fetchExplorer('', '', 1)">${escapeHtml(rootName)}</a>`;
+            let cum = "";
+            currentDir.split('/').filter(p => p).forEach(p => {
+                cum += (cum ? '/' : '') + p;
+                bc.innerHTML += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${escapeJs(cum)}', '', 1)">${escapeHtml(p)}</a>`;
+            });
+        }
     } else {
         let bcHtml = currentSearch ? `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"` : `<a class="bc-link" onclick="fetchExplorer('', '', 1)">Root</a>`;
         if (!currentSearch) {

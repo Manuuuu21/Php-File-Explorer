@@ -31,6 +31,8 @@ function safePath($path, $realBase) {
 
 // ================= SHARE LINK HANDLING (BEFORE AUTH) =================
 $is_shared_view = false;
+$is_single_file_share = false;
+$single_shared_file_info = null;
 $share_token = $_GET['share'] ?? null;
 
 if ($share_token && preg_match('/^[a-f0-9]{32}$/', $share_token)) {
@@ -41,28 +43,16 @@ if ($share_token && preg_match('/^[a-f0-9]{32}$/', $share_token)) {
         $shared_full_path = safePath($realBase . DIRECTORY_SEPARATOR . $shared_relative_path, $realBase);
 
         if ($shared_full_path && file_exists($shared_full_path)) {
-            if (is_file($shared_full_path)) {
-                // If it's a file, serve it directly and exit.
-                while (ob_get_level()) ob_end_clean();
-                $size = filesize($shared_full_path);
-                $ext = strtolower(pathinfo($shared_full_path, PATHINFO_EXTENSION));
-                $mimeTypes = [
-                    'jpg'=>'image/jpeg','jpeg'=>'image/jpeg','png'=>'image/png','gif'=>'image/gif',
-                    'webp'=>'image/webp','svg'=>'image/svg+xml','mp4'=>'video/mp4','webm'=>'video/webm',
-                    'ogg'=>'video/ogg','mp3'=>'audio/mpeg','wav'=>'audio/wav','pdf' => 'application/pdf'
-                ];
-                $contentType = $mimeTypes[$ext] ?? 'application/octet-stream';
-                $disposition = 'attachment'; // Force download for shared files
-                header('Content-Type: ' . $contentType);
-                header('Content-Disposition: ' . $disposition . '; filename="' . basename($shared_full_path) . '"');
-                header("Content-Length: " . $size);
-                readfile($shared_full_path);
-                exit;
-            }
-            // It's a directory, set up the read-only view.
             $is_shared_view = true;
-            $baseDir = $shared_full_path; 
-            $realBase = realpath($baseDir); 
+            if (is_file($shared_full_path)) {
+                $is_single_file_share = true;
+                $baseDir = dirname($shared_full_path);
+                $realBase = realpath($baseDir);
+                $single_shared_file_info = $shared_full_path;
+            } else { // It's a directory
+                $baseDir = $shared_full_path; 
+                $realBase = realpath($baseDir); 
+            }
         }
     }
 }
@@ -435,33 +425,47 @@ if (isset($_GET['download'])) {
 
 // ================= DATA GATHERING =================
 $allItems = [];
-$isSearch = !empty($searchQuery) && !$is_shared_view; 
-if ($isSearch) {
-    $allFiles = getGlobalIndex($realBase, $globalIndexFile);
-    foreach ($allFiles as $item) {
-        if (stripos($item['name'], $searchQuery) !== false) {
-            $item['mtime_f'] = date("Y-m-d H:i", $item['mtime']);
-            $item['size_f'] = $item['isDir'] ? '--' : formatSize($item['size']);
-            $allItems[] = $item;
-        }
-    }
+if ($is_single_file_share) {
+    $fPath = $single_shared_file_info;
+    $f = basename($fPath);
+    $item_path_for_js = ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR);
+    $allItems[] = [
+        'name' => $f, 'path' => $item_path_for_js,
+        'isDir' => false, 'mtime' => filemtime($fPath),
+        'mtime_f' => date("Y-m-d H:i", filemtime($fPath)),
+        'size' => filesize($fPath),
+        'size_f' => formatSize(filesize($fPath)),
+        'type' => strtoupper(pathinfo($f, PATHINFO_EXTENSION))
+    ];
 } else {
-    $scanned = @scandir($currentDir);
-    if ($scanned) {
-        foreach ($scanned as $f) {
-            if ($f === '.' || $f === '..') continue;
-            $fPath = $currentDir . DIRECTORY_SEPARATOR . $f;
-            // The path sent to JS must be relative to the $realBase (admin root or share root)
-            $item_path_for_js = ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR);
+    $isSearch = !empty($searchQuery) && !$is_shared_view; 
+    if ($isSearch) {
+        $allFiles = getGlobalIndex($realBase, $globalIndexFile);
+        foreach ($allFiles as $item) {
+            if (stripos($item['name'], $searchQuery) !== false) {
+                $item['mtime_f'] = date("Y-m-d H:i", $item['mtime']);
+                $item['size_f'] = $item['isDir'] ? '--' : formatSize($item['size']);
+                $allItems[] = $item;
+            }
+        }
+    } else {
+        $scanned = @scandir($currentDir);
+        if ($scanned) {
+            foreach ($scanned as $f) {
+                if ($f === '.' || $f === '..') continue;
+                $fPath = $currentDir . DIRECTORY_SEPARATOR . $f;
+                // The path sent to JS must be relative to the $realBase (admin root or share root)
+                $item_path_for_js = ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR);
 
-            $allItems[] = [
-                'name' => $f, 'path' => $item_path_for_js,
-                'isDir' => is_dir($fPath), 'mtime' => filemtime($fPath),
-                'mtime_f' => date("Y-m-d H:i", filemtime($fPath)),
-                'size' => is_dir($fPath) ? -1 : filesize($fPath),
-                'size_f' => is_dir($fPath) ? '--' : formatSize(filesize($fPath)),
-                'type' => is_dir($fPath) ? 'Folder' : strtoupper(pathinfo($f, PATHINFO_EXTENSION))
-            ];
+                $allItems[] = [
+                    'name' => $f, 'path' => $item_path_for_js,
+                    'isDir' => is_dir($fPath), 'mtime' => filemtime($fPath),
+                    'mtime_f' => date("Y-m-d H:i", filemtime($fPath)),
+                    'size' => is_dir($fPath) ? -1 : filesize($fPath),
+                    'size_f' => is_dir($fPath) ? '--' : formatSize(filesize($fPath)),
+                    'type' => is_dir($fPath) ? 'Folder' : strtoupper(pathinfo($f, PATHINFO_EXTENSION))
+                ];
+            }
         }
     }
 }
@@ -659,6 +663,7 @@ if ($isAjax) {
     <script>
     // Initialize the JS with data from PHP
     isSharedView = <?= $is_shared_view ? 'true' : 'false' ?>;
+    isSingleFileShare = <?= $is_single_file_share ? 'true' : 'false' ?>;
     sharedFolderName = "<?= $is_shared_view ? basename($realBase) : '' ?>";
     currentDir = "<?= addslashes($relativeDir) ?>";
     currentSearch = "<?= addslashes($searchQuery) ?>";
