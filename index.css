@@ -427,6 +427,14 @@ body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--on
 .context-menu div { padding: 10px 16px; cursor: pointer; display: flex; align-items: center; gap: 10px; font-size: 0.85rem; }
 .context-menu div:hover { background: #f1f1f1; }
 
+.breadcrumb-dropdown { position: relative; display: inline-block; }
+.breadcrumb-dropdown-content { display: none; position: fixed; background-color: #f9f9f9; min-width: 160px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2); z-index: 2; border-radius: 12px; padding: 6px 0;}
+.breadcrumb-dropdown-content.show { display: block; }
+.breadcrumb-dropdown-content a { color: black; padding: 10px 16px; text-decoration: none; display: block; font-size: 0.85rem; cursor: pointer; }
+.breadcrumb-dropdown-content a:hover { background-color: #f1f1f1; }
+.breadcrumb-more-btn { cursor: pointer; padding: 6px 10px; border-radius: 8px; }
+.breadcrumb-more-btn:hover { background: rgba(0,0,0,0.05); }
+
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 1000; }
 
 /* --- RESPONSIVE ADJUSTMENTS --- */

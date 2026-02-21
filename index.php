@@ -424,6 +424,9 @@ if (isset($_GET['download'])) {
 }
 
 // ================= DATA GATHERING =================
+if (!$is_shared_view) {
+    getGlobalIndex($adminRealBase, $globalIndexFile);
+}
 $allItems = [];
 if ($is_single_file_share) {
     $fPath = $single_shared_file_info;
@@ -672,6 +675,11 @@ if ($isAjax) {
     currentPage = <?= $page ?>;
     sortKey = '<?= addslashes($sortKey) ?>';
     sortOrder = <?= $sortOrder ?>;
+    <?php if (!$is_shared_view && file_exists($globalIndexFile)): ?>
+    window.fileIndex = <?= file_get_contents($globalIndexFile) ?>;
+    <?php else: ?>
+    window.fileIndex = [];
+    <?php endif; ?>
     
     window.onload = () => {
         if (!isSharedView) setupDragAndDrop();

@@ -79,6 +79,21 @@ document.addEventListener('keydown', (e) => {
     }
 });
 
+function toggleBreadcrumbDropdown(btn) {
+    const content = btn.nextElementSibling;
+    content.classList.toggle('show');
+}
+
+document.addEventListener('click', function(event) {
+    const dropdowns = document.querySelectorAll('.breadcrumb-dropdown-content');
+    const target = event.target;
+    dropdowns.forEach(dropdown => {
+        if (!dropdown.previousElementSibling.contains(target) && !dropdown.contains(target)) {
+            dropdown.classList.remove('show');
+        }
+    });
+});
+
 function renderExplorer() {
     const list = document.getElementById('fileListContent');
     const bc = document.getElementById('breadcrumbTrail');
@@ -98,13 +113,31 @@ function renderExplorer() {
             });
         }
     } else {
-        let bcHtml = currentSearch ? `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"` : `<a class="bc-link" onclick="fetchExplorer('', '', 1)">Root</a>`;
-        if (!currentSearch) {
-            let cum = "";
-            currentDir.split('/').filter(p => p).forEach(p => {
-                cum += (cum ? '/' : '') + p;
-                bcHtml += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${escapeJs(cum)}', '', 1)">${escapeHtml(p)}</a>`;
-            });
+        let bcHtml = '';
+        if (currentSearch) {
+            bcHtml = `🔍 Search: "<strong>${escapeHtml(currentSearch)}</strong>"`;
+        } else {
+            const pathParts = currentDir.split('/').filter(p => p);
+            bcHtml = `<a class="bc-link" onclick="fetchExplorer('', '', 1)">Root</a>`;
+            let cumulativePath = "";
+
+            if (pathParts.length > 3) {
+                bcHtml += ` <span class="bc-sep">/</span> <div class="breadcrumb-dropdown"><span class="breadcrumb-more-btn" onclick="toggleBreadcrumbDropdown(this)">...</span><div class="breadcrumb-dropdown-content">`;
+                for (let i = 0; i < pathParts.length - 2; i++) {
+                    cumulativePath += (cumulativePath ? '/' : '') + pathParts[i];
+                    bcHtml += `<a onclick="fetchExplorer('${escapeJs(cumulativePath)}', '', 1)">${escapeHtml(pathParts[i])}</a>`;
+                }
+                bcHtml += `</div></div>`;
+                for (let i = pathParts.length - 2; i < pathParts.length; i++) {
+                    cumulativePath += (cumulativePath ? '/' : '') + pathParts[i];
+                    bcHtml += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${escapeJs(cumulativePath)}', '', 1)">${escapeHtml(pathParts[i])}</a>`;
+                }
+            } else {
+                pathParts.forEach(p => {
+                    cumulativePath += (cumulativePath ? '/' : '') + p;
+                    bcHtml += ` <span class="bc-sep">/</span> <a class="bc-link" onclick="fetchExplorer('${escapeJs(cumulativePath)}', '', 1)">${escapeHtml(p)}</a>`;
+                });
+            }
         }
         bc.innerHTML = bcHtml;
     }
@@ -125,7 +158,7 @@ function renderExplorer() {
     let html = "";
     if (!currentSearch && currentDir !== "" && currentPage === 1) {
         const parent = currentDir.split('/').slice(0, -1).join('/');
-        html += `<div class="table-row folder" style="position:sticky;top:44px;background:white;z-index:99;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
+        html += `<div class="table-row folder" style="position:sticky;top:44px;background:white;z-index:1;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
     }
 
     items.forEach(f => {
