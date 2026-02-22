@@ -7,7 +7,7 @@ Core Features:
 - Cinematic Media Viewer: Immersive preview for Images, 4K Video, Audio (with Vinyl animation), and PDF.
 - Integrated Code Viewer: Powered by Ace.js with Monokai theme for .txt, .html, .css, .php, and .js.
 - Advanced Upload Engine: Sequential folder/file uploads with drag-and-drop support and real-time speed indicator.
-- 100GB Storage Monitor: Visual real-time disk usage tracking and quota management.
+- 100GB Storage Monitor: Visual real-time disk usage tracking and quota management. (You can change this as long as you have more free space in your computer)
 - Smart Search: Recursive server-side search with instant result filtering.
 - Bulk Operations: Multi-select Delete, Move, and ZIP compression with dynamic selection counters.
 - Shared Views: Secure, read-only public access links for collaborative file sharing.
