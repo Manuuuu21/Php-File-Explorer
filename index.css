@@ -237,7 +237,7 @@ body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--on
     grid-template-columns: 56px 1fr 180px 100px 100px 80px;
     align-items: center;
     border-bottom: 1px solid var(--outline-variant);
-    padding: 12px 24px;
+    padding: 14px 24px 14px 8px;
     font-weight: 500;
     font-size: 0.8rem;
     color: var(--on-surface-variant);
@@ -255,7 +255,7 @@ body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--on
     display: grid;
     grid-template-columns: 56px 1fr 180px 100px 100px 80px;
     align-items: center;
-    padding: 14px 24px;
+    padding: 14px 24px 14px 8px;
     border-bottom: 1px solid var(--outline-variant);
     transition: background-color 0.1s;
     cursor: default;
