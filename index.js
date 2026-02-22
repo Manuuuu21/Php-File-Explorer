@@ -533,6 +533,10 @@ function updateBulkBtn() {
         document.getElementById('bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
         document.getElementById('bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
         document.getElementById('bulkZipBtn').innerHTML = `📦 ZIP (${checkedCount})`;
+
+        document.getElementById('m-dropdown-bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
+        document.getElementById('m-dropdown-bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
+        document.getElementById('m-dropdown-bulkZipBtn').innerHTML = `📦 ZIP (${checkedCount})`;
     } else {
         bulkActions.style.display = 'none';
     }

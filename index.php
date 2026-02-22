@@ -601,17 +601,17 @@ if ($isAjax) {
                     <?php if (!$is_shared_view): ?>
                     <div id="bulkActions" class="bulk-actions-group" style="display: none;">
                         <div class="desktop-bulk-actions">
-                            <button class="btn btn-tonal-danger" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
-                            <button class="btn btn-tonal-primary" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
-                            <button class="btn btn-tonal-primary" id="bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</button>
+                            <button class="btn btn-tonal-danger bulkDeleteBtn" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
+                            <button class="btn btn-tonal-primary bulkMoveBtn" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
+                            <button class="btn btn-tonal-primary bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</button>
                         </div>
                         <div class="mobile-bulk-actions">
                             <div class="breadcrumb-dropdown">
                                 <button class="btn btn-tonal-primary" onclick="toggleBreadcrumbDropdown(this)">⚡ Actions</button>
                                 <div class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
-                                    <a onclick="submitBulkDelete()">🗑️ Delete</a>
-                                    <a onclick="movePrompt()">➡️ Move</a>
-                                    <a onclick="submitBulkZip()">📦 ZIP</a>
+                                    <a id="m-dropdown-bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</a>
+                                    <a id="m-dropdown-bulkMoveBtn" onclick="movePrompt()">➡️ Move</a>
+                                    <a id="m-dropdown-bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</a>
                                 </div>
                             </div>
                         </div>
