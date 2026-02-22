@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Fira+Code:wght@400;500&display=swap');
+
 :root {
     --primary: #3f51b5;
     --on-primary: #ffffff;
@@ -418,6 +420,12 @@ body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--on
     box-shadow: 0 24px 60px rgba(0,0,0,0.6); 
 }
 
+#codeEditor {
+    flex: 1;
+    align-self: stretch;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+
 /* Vinyl Record Animation for Audio */
 .audio-player-wrapper { display: flex; flex-direction: column; align-items: center; gap: 32px; width: 100%; max-width: 480px; }
 .vinyl-disc { width: 240px; height: 240px; background: #111; border-radius: 50%; border: 10px solid #222; display: flex; align-items: center; justify-content: center; position: relative; box-shadow: 0 15px 45px rgba(0,0,0,0.5); animation: rotateVinyl 8s linear infinite; animation-play-state: paused; }
@@ -425,6 +433,28 @@ body { font-family: 'Roboto', sans-serif; background: var(--bg); color: var(--on
 .vinyl-label { width: 80px; height: 80px; background: var(--primary); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 32px; color: white; z-index: 2; }
 @keyframes rotateVinyl { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 #mediaContainer audio { width: 100%; height: 48px; filter: invert(100%) hue-rotate(180deg); opacity: 0.9; }
+
+/* PDF Viewer Styles */
+.pdf-viewer-container {
+    width: 100%;
+    height: 70vh;
+    overflow-y: auto;
+    background: #525659;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    border-radius: 16px;
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
+}
+
+.pdf-page-canvas {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    max-width: 100%;
+    background: white;
+    border-radius: 4px;
+}
 
 /* Standard Controls */
 .m3-input { width: 100%; padding: 14px; border: 1px solid var(--outline); border-radius: 12px; box-sizing: border-box; font-size: 1rem; background: transparent; transition: border 0.2s; }

@@ -23,7 +23,7 @@ let currentXhr = null;
 let mediaItems = [];
 let currentMediaIndex = -1;
 
-const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav'];
+const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js'];
 
 // --- HELPERS ---
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
@@ -559,6 +559,8 @@ function openMediaViewer(path) {
     openModal('mediaModal');
 }
 
+const codeExts = ['txt', 'html', 'css', 'php', 'js'];
+
 function loadMedia() {
     const item = mediaItems[currentMediaIndex];
     const container = document.getElementById('mediaContainer');
@@ -572,17 +574,81 @@ function loadMedia() {
     }
     
     container.style.opacity = '0';
-    setTimeout(() => {
-        if (['mp4','webm','ogg'].includes(ext)) container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${url}"></video>`;
-        else if (['mp3','wav'].includes(ext)) {
+    setTimeout(async () => {
+        if (['mp4','webm','ogg'].includes(ext)) {
+            container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${url}"></video>`;
+        } else if (['mp3','wav'].includes(ext)) {
             container.innerHTML = `<div class="audio-player-wrapper"><div class="vinyl-disc" id="vinylDisc"><div class="vinyl-label">🎵</div></div><div style="width:125%; text-align:center;"><audio id="mainAudio" controls autoplay src="${url}"></audio></div></div>`;
             const audio = document.getElementById('mainAudio'), disc = document.getElementById('vinylDisc');
             audio.onplay = () => disc.classList.add('playing');
             audio.onpause = audio.onended = () => disc.classList.remove('playing');
             if (!audio.paused) disc.classList.add('playing');
-        } else container.innerHTML = `<img src="${url}" style="max-height:70vh; max-width:100%">`;
+        } else if (ext === 'pdf') {
+            container.innerHTML = `<div class="pdf-viewer-container" id="pdfViewer">
+                <div style="color: white; padding: 20px;">Loading PDF...</div>
+            </div>`;
+            renderPdf(url);
+        } else if (codeExts.includes(ext)) {
+            container.innerHTML = `<div id="codeEditor" style="width:100%; height:70vh; border-radius:12px;"></div>`;
+            try {
+                const response = await fetch(url);
+                const content = await response.text();
+                const editor = ace.edit("codeEditor");
+                editor.setTheme("ace/theme/monokai");
+                
+                let mode = "ace/mode/text";
+                if (ext === 'html') mode = "ace/mode/html";
+                else if (ext === 'css') mode = "ace/mode/css";
+                else if (ext === 'js') mode = "ace/mode/javascript";
+                else if (ext === 'php') mode = "ace/mode/php";
+                
+                editor.session.setMode(mode);
+                editor.setValue(content, -1);
+                editor.setReadOnly(true);
+                editor.setShowPrintMargin(false);
+                editor.setOptions({
+                    fontSize: "14px",
+                    fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+                });
+            } catch (e) {
+                container.innerHTML = `<div style="color:white; padding:20px;">Error loading file content.</div>`;
+            }
+        } else {
+            container.innerHTML = `<img src="${url}" style="max-height:70vh; max-width:100%">`;
+        }
         container.style.opacity = '1';
     }, 150);
+}
+
+async function renderPdf(url) {
+    const container = document.getElementById('pdfViewer');
+    try {
+        const loadingTask = pdfjsLib.getDocument(url);
+        const pdf = await loadingTask.promise;
+        container.innerHTML = ''; // Clear loading message
+        
+        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+            const page = await pdf.getPage(pageNum);
+            const viewport = page.getViewport({ scale: 1.5 });
+            
+            const canvas = document.createElement('canvas');
+            canvas.className = 'pdf-page-canvas';
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+            
+            const renderContext = {
+                canvasContext: context,
+                viewport: viewport
+            };
+            
+            container.appendChild(canvas);
+            await page.render(renderContext).promise;
+        }
+    } catch (error) {
+        console.error('Error rendering PDF:', error);
+        container.innerHTML = `<div style="color: #ff8a80; padding: 20px;">Error loading PDF: ${error.message}</div>`;
+    }
 }
 
 function navigateMedia(d) { if (mediaItems.length <= 1) return; currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length; loadMedia(); }

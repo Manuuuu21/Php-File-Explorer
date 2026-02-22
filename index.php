@@ -528,6 +528,12 @@ if ($isAjax) {
     <title>Material Explorer Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="index.css" />
+    <script src="util-lib/pdf.min.js"></script>
+    <script>
+        var pdfjsLib = window['pdfjs-dist/build/pdf'];
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'util-lib/pdf.worker.min.js';
+    </script>
+    <script src="util-lib/ace.js"></script>
 </head>
 <body>
 
