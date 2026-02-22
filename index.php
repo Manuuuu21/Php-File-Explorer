@@ -1,9 +1,7 @@
 <?php
 /**
- * PHP File Explorer - Material Design Redesign (Full Feature Restoration)
- * Features: Login System, Recursive Search, 100GB Storage Monitor, Progress bar with Speed indicator, 
- * Sequential Upload, Selection Counter, Media Player Modal, Context Menus, ZIP Compression, 
- * Folder Upload & Drag-and-Drop Support, Multi-column Sorting, Server-side Pagination.
+ * PHP File Explorer - Material Design 3 Redesign
+ * A high-performance, feature-rich file management system with a cinematic UI.
  */
 
 ob_start();
@@ -178,6 +176,34 @@ function recursiveDelete($path) {
     return @unlink($path);
 }
 
+function recursiveCopy($src, $dst, $isTopLevel = true) {
+    if ($isTopLevel && file_exists($dst)) {
+        $pathInfo = pathinfo($dst);
+        $dir = $pathInfo['dirname'];
+        $filename = $pathInfo['filename'];
+        $extension = isset($pathInfo['extension']) ? '.' . $pathInfo['extension'] : '';
+        
+        $newName = "Copy of " . $filename . $extension;
+        $dst = $dir . DIRECTORY_SEPARATOR . $newName;
+        
+        $counter = 2;
+        while (file_exists($dst)) {
+            $dst = $dir . DIRECTORY_SEPARATOR . "Copy of " . $filename . " ($counter)" . $extension;
+            $counter++;
+        }
+    }
+
+    if (is_dir($src)) {
+        if (!file_exists($dst)) @mkdir($dst, 0777, true);
+        $files = array_diff(scandir($src), array('.', '..'));
+        foreach ($files as $file) {
+            recursiveCopy($src . DIRECTORY_SEPARATOR . $file, $dst . DIRECTORY_SEPARATOR . $file, false);
+        }
+    } else {
+        @copy($src, $dst);
+    }
+}
+
 function formatSize($bytes) {
     if ($bytes >= 1073741824) return number_format($bytes / 1073741824, 2) . ' GB';
     if ($bytes >= 1048576) return number_format($bytes / 1048576, 2) . ' MB';
@@ -271,6 +297,29 @@ if (!$is_shared_view) {
             $error = "Invalid target directory.";
         }
         if ($isAjax) sendJsonResponse(['success' => $successCount > 0, 'moved' => $successCount, 'error' => $error]);
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
+        exit;
+    }
+
+    if (isset($_POST['bulk_copy'], $_POST['move_target']) && !empty($_POST['selected_items'])) {
+        $targetDir = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['move_target'], $realBase);
+        $successCount = 0;
+        $error = "";
+
+        if ($targetDir && is_dir($targetDir)) {
+            foreach ($_POST['selected_items'] as $itemPath) {
+                $file = safePath($realBase . DIRECTORY_SEPARATOR . $itemPath, $realBase);
+                if ($file) {
+                    $newPath = $targetDir . DIRECTORY_SEPARATOR . basename($file);
+                    recursiveCopy($file, $newPath, true);
+                    $successCount++;
+                }
+            }
+            if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
+        } else {
+            $error = "Invalid target directory.";
+        }
+        if ($isAjax) sendJsonResponse(['success' => $successCount > 0, 'copied' => $successCount, 'error' => $error]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
         exit;
     }

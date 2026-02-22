@@ -12,6 +12,7 @@ let isSingleFileShare = false;
 let sharedFolderName = "";
 let clipboardItems = [];
 let clipboardSourceDir = "";
+let clipboardAction = "cut"; // "cut" or "copy"
 let activePaths = [];
 let lastClickTime = 0;
 let lastClickPath = null;
@@ -83,6 +84,37 @@ document.addEventListener('keydown', (e) => {
         if (!isSharedView) toggleSidebar(false);
     }
     
+    // CTRL+A (Select All)
+    if (e.ctrlKey && e.key.toLowerCase() === 'a') {
+        if (isSharedView) return;
+        if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+        e.preventDefault();
+        const selectAllCb = document.getElementById('selectAll');
+        if (selectAllCb) selectAllCb.checked = true;
+        const checkboxes = document.querySelectorAll('input[name="selected_items[]"]');
+        checkboxes.forEach(cb => cb.checked = true);
+        updateBulkBtn();
+    }
+    
+    // CTRL+C (Copy)
+    if (e.ctrlKey && e.key.toLowerCase() === 'c') {
+        if (isSharedView) return;
+        const selected = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
+        if (selected.length > 0) {
+            clipboardItems = selected;
+            clipboardSourceDir = currentDir;
+            clipboardAction = "copy";
+            renderExplorer();
+            showSnackbar(`${selected.length} items copied to clipboard`, { actionText: '', actionUrl: '#' });
+        } else if (activePaths.length > 0) {
+            clipboardItems = [...activePaths];
+            clipboardSourceDir = currentDir;
+            clipboardAction = "copy";
+            renderExplorer();
+            showSnackbar(`${activePaths.length} items copied to clipboard`, { actionText: '', actionUrl: '#' });
+        }
+    }
+
     // CTRL+X (Cut)
     if (e.ctrlKey && e.key.toLowerCase() === 'x') {
         if (isSharedView) return;
@@ -90,11 +122,13 @@ document.addEventListener('keydown', (e) => {
         if (selected.length > 0) {
             clipboardItems = selected;
             clipboardSourceDir = currentDir;
+            clipboardAction = "cut";
             renderExplorer(); // Update opacity
             showSnackbar(`${selected.length} items cut to clipboard`, { actionText: '', actionUrl: '#' });
         } else if (activePaths.length > 0) {
             clipboardItems = [...activePaths];
             clipboardSourceDir = currentDir;
+            clipboardAction = "cut";
             renderExplorer();
             showSnackbar(`${activePaths.length} items cut to clipboard`, { actionText: '', actionUrl: '#' });
         }
@@ -209,7 +243,7 @@ function renderExplorer() {
             }
         }
 
-        const isCut = clipboardItems.includes(f.path);
+        const isCut = clipboardAction === 'cut' && clipboardItems.includes(f.path);
         const isActive = activePaths.includes(f.path);
         
         let downloadBtn = !f.isDir ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
@@ -321,7 +355,11 @@ async function pasteItems() {
     const transferSnackbar = showSnackbar('Transferring...', { persistent: true });
     
     const fd = new FormData();
-    fd.append('bulk_move', '1');
+    if (clipboardAction === 'cut') {
+        fd.append('bulk_move', '1');
+    } else {
+        fd.append('bulk_copy', '1');
+    }
     fd.append('move_target', currentDir);
     clipboardItems.forEach(itemPath => fd.append('selected_items[]', itemPath));
     
@@ -338,9 +376,12 @@ async function pasteItems() {
         if(result.error) {
             uiAlert(`Paste failed: ${result.error}`);
         } else {
-            showSnackbar(`${count} files have been moved from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
-            clipboardItems = [];
-            clipboardSourceDir = "";
+            const actionText = clipboardAction === 'cut' ? 'moved' : 'copied';
+            showSnackbar(`${count} files have been ${actionText} from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
+            if (clipboardAction === 'cut') {
+                clipboardItems = [];
+                clipboardSourceDir = "";
+            }
             fetchExplorer(currentDir, currentSearch, currentPage);
         }
     } catch(e) { 
