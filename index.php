@@ -15,7 +15,7 @@ error_reporting(E_ALL);
 $baseDir = __DIR__ . DIRECTORY_SEPARATOR . 'files';
 if (!file_exists($baseDir)) mkdir($baseDir, 0777, true);
 $realBase = realpath($baseDir); // This is the absolute root for the admin
-$storageLimit = 100 * 1024 * 1024 * 1024; // 100GB
+$storageLimit = 100 * 1024 * 1024 * 1024; // 100 GB
 
 // --- FORWARD DECLARATION OF HELPERS ---
 function safePath($path, $realBase) {
@@ -205,6 +205,7 @@ function recursiveCopy($src, $dst, $isTopLevel = true) {
 }
 
 function formatSize($bytes) {
+    if ($bytes >= 1099511627776) return number_format($bytes / 1099511627776, 2) . ' TB';
     if ($bytes >= 1073741824) return number_format($bytes / 1073741824, 2) . ' GB';
     if ($bytes >= 1048576) return number_format($bytes / 1048576, 2) . ' MB';
     if ($bytes >= 1024) return number_format($bytes / 1024, 2) . ' KB';
@@ -382,6 +383,58 @@ if (!$is_shared_view) {
         sendJsonResponse(['success' => true, 'token' => $token]);
     }
 
+    if (isset($_GET['storage'])) {
+        $allFiles = getGlobalIndex($adminRealBase, $globalIndexFile);
+        $filesOnly = array_filter($allFiles, function($f) { return !$f['isDir']; });
+        
+        $breakdown = [
+            'video' => ['size' => 0, 'exts' => ['mp4', 'webm', 'ogg', 'mp3', 'wav']],
+            'photo' => ['size' => 0, 'exts' => ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg']],
+            'doc' => ['size' => 0, 'exts' => ['pdf', 'txt', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx']],
+            'other' => ['size' => 0]
+        ];
+
+        $totalUsed = 0;
+        foreach ($filesOnly as $f) {
+            $totalUsed += $f['size'];
+            $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+            $categorized = false;
+            foreach ($breakdown as $key => &$data) {
+                if (isset($data['exts']) && in_array($ext, $data['exts'])) {
+                    $data['size'] += $f['size'];
+                    $categorized = true;
+                    break;
+                }
+            }
+            if (!$categorized) $breakdown['other']['size'] += $f['size'];
+        }
+
+        // Sort by size descending
+        usort($filesOnly, function($a, $b) { return $b['size'] - $a['size']; });
+
+        $page = isset($_GET['page']) ? (int)$_GET['page'] : 1;
+        $perPage = 15;
+        $offset = ($page - 1) * $perPage;
+        $paginatedFiles = array_slice($filesOnly, $offset, $perPage);
+        
+        foreach ($paginatedFiles as &$f) {
+            $f['size_f'] = formatSize($f['size']);
+        }
+
+        $usedPercent = ($totalUsed / $storageLimit) * 100;
+
+        sendJsonResponse([
+            'breakdown' => $breakdown,
+            'totalUsed' => $totalUsed,
+            'totalUsedFormatted' => formatSize($totalUsed),
+            'storageLimit' => $storageLimit,
+            'storageLimitFormatted' => formatSize($storageLimit),
+            'usedPercent' => number_format($usedPercent, 2),
+            'files' => array_values($paginatedFiles),
+            'hasMore' => ($offset + $perPage) < count($filesOnly)
+        ]);
+    }
+
 
     if (!empty($_POST['newfolder'])) {
         $name = preg_replace('/[^a-zA-Z0-9\s_-]/', '', $_POST['newfolder']);
@@ -495,8 +548,7 @@ if ($is_single_file_share) {
         $allFiles = getGlobalIndex($realBase, $globalIndexFile);
         foreach ($allFiles as $item) {
             if (stripos($item['name'], $searchQuery) !== false) {
-                $item['mtime_f'] = date("Y-m-d H:i", $item['mtime']);
-                $item['size_f'] = $item['isDir'] ? '--' : formatSize($item['size']);
+                // Defer formatting until after pagination
                 $allItems[] = $item;
             }
         }
@@ -506,16 +558,25 @@ if ($is_single_file_share) {
             foreach ($scanned as $f) {
                 if ($f === '.' || $f === '..') continue;
                 $fPath = $currentDir . DIRECTORY_SEPARATOR . $f;
-                $item_path_for_js = str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR));
-
-                $allItems[] = [
-                    'name' => $f, 'path' => $item_path_for_js,
-                    'isDir' => is_dir($fPath), 'mtime' => filemtime($fPath),
-                    'mtime_f' => date("Y-m-d H:i", filemtime($fPath)),
-                    'size' => is_dir($fPath) ? -1 : filesize($fPath),
-                    'size_f' => is_dir($fPath) ? '--' : formatSize(filesize($fPath)),
-                    'type' => is_dir($fPath) ? 'Folder' : strtoupper(pathinfo($f, PATHINFO_EXTENSION))
+                $isDir = is_dir($fPath);
+                
+                $item = [
+                    'name' => $f,
+                    'path' => str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase, '', $fPath), DIRECTORY_SEPARATOR)),
+                    'isDir' => $isDir,
+                    'type' => $isDir ? 'Folder' : strtoupper(pathinfo($f, PATHINFO_EXTENSION))
                 ];
+                
+                // Only fetch stats if sorting requires them
+                if ($sortKey === 'mtime' || $sortKey === 'size') {
+                    $item['mtime'] = filemtime($fPath);
+                    $item['size'] = $isDir ? -1 : filesize($fPath);
+                } else {
+                    $item['mtime'] = 0; // Placeholder
+                    $item['size'] = 0;  // Placeholder
+                }
+                
+                $allItems[] = $item;
             }
         }
     }
@@ -531,12 +592,19 @@ usort($allItems, function($a, $b) use ($sortKey, $sortOrder) {
 
 // SERVER SIDE PAGINATION
 $totalMatched = count($allItems);
-if ($isSearch) {
-    $offset = ($page - 1) * $perPage;
-    $items = array_slice($allItems, $offset, $perPage);
-} else {
-    $items = $allItems;
+$offset = ($page - 1) * $perPage;
+$items = array_slice($allItems, $offset, $perPage);
+
+// ENRICH PAGINATED ITEMS WITH STATS
+foreach ($items as &$item) {
+    $fPath = $realBase . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $item['path']);
+    if ($item['mtime'] === 0) $item['mtime'] = filemtime($fPath);
+    if ($item['size'] === 0 && !$item['isDir']) $item['size'] = filesize($fPath);
+    
+    $item['mtime_f'] = date("Y-m-d H:i", $item['mtime']);
+    $item['size_f'] = $item['isDir'] ? '--' : formatSize($item['size']);
 }
+unset($item);
 
 // --- STATS (ADMIN ONLY) ---
 $stats = [];
@@ -564,7 +632,7 @@ if ($isAjax) {
         'page' => $page, 'totalCount' => $totalMatched, 'perPage' => $perPage,
     ];
     if (!$is_shared_view) {
-       $response['stats'] = ['used' => formatSize($totalUsed), 'usedPercent' => number_format($usedPercent, 2), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100];
+       $response['stats'] = ['used' => formatSize($totalUsed), 'usedPercent' => number_format($usedPercent, 2), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100, 'limit' => formatSize($storageLimit)];
     }
     sendJsonResponse($response);
 }
@@ -608,7 +676,8 @@ if ($isAjax) {
         </div>
 
         <nav style="display: flex; flex-direction: column; gap: 12px;">
-            <button class="btn btn-tonal" onclick="openModal('folderModal'); toggleSidebar(false);">🆕 New Folder</button>
+            <button id="myFilesBtn" class="btn btn-outline" style="justify-content: flex-start; border: none; background: rgb(238, 238, 238); color: var(--on-surface);">📁 My Files</button>
+            <button id="storageBtn" class="btn btn-outline" style="justify-content: flex-start; border: none; background: transparent; color: var(--on-surface);">☁️ My Storage</button>
         </nav>
 
         <div class="sidebar-bottom">
@@ -638,6 +707,8 @@ if ($isAjax) {
                 
                 <button class="btn btn-outline" onclick="document.getElementById('folderInput').click()">📁 <span>Upload Folder</span></button>
                 <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="uploadItems('folder')">
+
+                <button class="btn btn-outline" onclick="openModal('folderModal')">🆕 <span>New Folder</span></button>
             </div>
             <?php endif; ?>
         </header>
@@ -707,6 +778,43 @@ if ($isAjax) {
                 </div>
                 <div id="fileListContent"></div>
             </div>
+
+            <div id="storageView" style="display: none; flex-direction: column; gap: 24px; padding: 24px;">
+                <h2 style="font-size: 1.5rem; font-weight: 400; margin: 0;">Storage</h2>
+                
+                <div style="margin-top: 8px;">
+                    <span id="totalUsedSize" style="font-size: 2rem; font-weight: 500;">0 GB</span>
+                    <span style="font-size: 0.9rem; color: #666;"> of <span id="storageLimitText">0 GB</span> used</span>
+                </div>
+
+                <div class="storage-chart-container" style="padding: 0; background: transparent;">
+                    <div class="stack-chart" style="height: 8px; border-radius: 4px; margin-bottom: 12px; background: #f0f0f0; display: flex; overflow: hidden;">
+                        <div id="segmentVideo" class="chart-segment segment-video" style="width: 0%; background: #4285f4; height: 100%;"></div>
+                        <div id="segmentPhoto" class="chart-segment segment-photo" style="width: 0%; background: #fbbc05; height: 100%;"></div>
+                        <div id="segmentDoc" class="chart-segment segment-doc" style="width: 0%; background: #ea4335; height: 100%;"></div>
+                        <div id="segmentOther" class="chart-segment segment-other" style="width: 0%; background: #34a853; height: 100%;"></div>
+                        <div id="segmentFree" class="chart-segment segment-free" style="width: 0%; background: transparent; height: 100%;"></div>
+                    </div>
+                    <div class="chart-legend" style="display: flex; gap: 16px; font-size: 0.8rem; color: #555; flex-wrap: wrap;">
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 8px;"><div class="legend-color" style="background: #4285f4; border-radius: 50%; width: 8px; height: 8px;"></div> Video/Audio <span id="legendVideoSize" style="color: #888; margin-left: -4px;"></span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 8px;"><div class="legend-color" style="background: #fbbc05; border-radius: 50%; width: 8px; height: 8px;"></div> Photos <span id="legendPhotoSize" style="color: #888; margin-left: -4px;"></span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 8px;"><div class="legend-color" style="background: #ea4335; border-radius: 50%; width: 8px; height: 8px;"></div> Documents <span id="legendDocSize" style="color: #888; margin-left: -4px;"></span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 8px;"><div class="legend-color" style="background: #34a853; border-radius: 50%; width: 8px; height: 8px;"></div> Other <span id="legendOtherSize" style="color: #888; margin-left: -4px;"></span></div>
+                        <div class="legend-item" style="display: flex; align-items: center; gap: 8px;"><div class="legend-color" style="background: #ccc; border-radius: 50%; width: 8px; height: 8px;"></div> Available Space <span id="legendFreeSize" style="color: #888; margin-left: -4px;"></span></div>
+                    </div>
+                </div>
+
+                <div style="margin-top: 24px;">
+                    <div style="display: grid; grid-template-columns: 1fr 120px; padding: 12px 16px; border-bottom: 1px solid #eee; font-weight: 500; font-size: 0.9rem; color: #333;">
+                        <div>Name</div>
+                        <div style="text-align: right;">Size</div>
+                    </div>
+                    <div id="storageFileList" class="storage-file-list" style="display: flex; flex-direction: column;"></div>
+                    <div class="load-more-container" style="display: flex; justify-content: center; padding: 16px 0;">
+                        <button id="loadMoreStorage" class="btn btn-tonal" style="display: none;">Load More</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </main>
     
@@ -747,7 +855,20 @@ if ($isAjax) {
     
     window.onload = () => {
         if (!isSharedView) setupDragAndDrop();
-        renderExplorer();
+        
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('mystorage') === 'quota' && !isSharedView) {
+            showStorageView();
+            const storageBtn = document.getElementById('storageBtn');
+            const myFilesBtn = document.getElementById('myFilesBtn');
+            if (storageBtn) storageBtn.style.background = "#eee";
+            if (myFilesBtn) myFilesBtn.style.background = "";
+        } else {
+            renderExplorer();
+            const myFilesBtn = document.getElementById('myFilesBtn');
+            if (myFilesBtn && !isSharedView) myFilesBtn.style.background = "#eee";
+        }
+
         <?php if (!$is_shared_view): ?>
         updateStats(<?= json_encode(['usedPercent' => number_format($usedPercent, 2), 'used' => formatSize($totalUsed), 'totalFiles' => $totalFilesStorage, 'isFull' => $usedPercent >= 100]) ?>);
         <?php endif; ?>

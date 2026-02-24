@@ -24,6 +24,8 @@ let currentXhr = null;
 let mediaItems = [];
 let currentMediaIndex = -1;
 
+let storageLimit = `100 GB`;
+
 const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js'];
 
 // --- HELPERS ---
@@ -60,6 +62,22 @@ function downloadFile(path) {
 // --- URL NAVIGATION SUPPORT ---
 window.onpopstate = function(event) {
     const params = new URLSearchParams(window.location.search);
+    
+    if (params.get('mystorage') === 'quota' && !isSharedView) {
+        showStorageView();
+        const storageBtn = document.getElementById('storageBtn');
+        const myFilesBtn = document.getElementById('myFilesBtn');
+        if (storageBtn) storageBtn.style.background = "#eee";
+        if (myFilesBtn) myFilesBtn.style.background = "";
+        return;
+    } else {
+        hideStorageView();
+        const storageBtn = document.getElementById('storageBtn');
+        const myFilesBtn = document.getElementById('myFilesBtn');
+        if (storageBtn) storageBtn.style.background = "";
+        if (myFilesBtn) myFilesBtn.style.background = "#eee";
+    }
+
     const dir = params.get('dir') || '';
     const search = params.get('search') || '';
     const page = parseInt(params.get('page') || '1');
@@ -71,6 +89,136 @@ function toggleSidebar(active) {
     if (active) sidebar.classList.add('active');
     else sidebar.classList.remove('active');
 }
+
+let storagePage = 1;
+let storageLoading = false;
+let storageHasMore = true;
+
+function showStorageView() {
+    const explorerBody = document.querySelector('.explorer-body > .data-table-container');
+    const storageView = document.getElementById('storageView');
+    const breadcrumbBar = document.querySelector('.breadcrumb-bar');
+    const paginationContainer = document.getElementById('paginationContainer');
+    const itemCounter = document.getElementById('itemCounter');
+
+    if (explorerBody) explorerBody.style.display = 'none';
+    if (breadcrumbBar) breadcrumbBar.style.display = 'none';
+    if (paginationContainer) paginationContainer.style.display = 'none';
+    if (itemCounter) itemCounter.style.display = 'none';
+    if (storageView) storageView.style.display = 'flex';
+
+    storagePage = 1;
+    storageHasMore = true;
+    const list = document.getElementById('storageFileList');
+    if (list) list.innerHTML = '';
+    fetchStorageData();
+    toggleSidebar(false);
+}
+
+function hideStorageView() {
+    const explorerBody = document.querySelector('.explorer-body > .data-table-container');
+    const storageView = document.getElementById('storageView');
+    const breadcrumbBar = document.querySelector('.breadcrumb-bar');
+    const itemCounter = document.getElementById('itemCounter');
+
+    if (storageView) storageView.style.display = 'none';
+    if (explorerBody) explorerBody.style.display = 'block';
+    if (breadcrumbBar) breadcrumbBar.style.display = 'block';
+    if (itemCounter) itemCounter.style.display = 'block';
+    
+    renderExplorer();
+}
+
+async function fetchStorageData() {
+    if (storageLoading || !storageHasMore) return;
+    storageLoading = true;
+
+    try {
+        const response = await fetch(`?storage=1&page=${storagePage}&ajax=1`);
+        const data = await response.json();
+
+        if (storagePage === 1) {
+            renderStorageSummary(data);
+            renderStorageChart(data);
+        }
+
+        renderStorageFileList(data.files);
+        storageHasMore = data.hasMore;
+        storagePage++;
+
+        const loadMoreBtn = document.getElementById('loadMoreStorage');
+        if (loadMoreBtn) {
+            loadMoreBtn.style.display = 'none'; // Hidden, using infinite scroll
+        }
+    } catch (e) {
+        console.error('Failed to fetch storage data:', e);
+        uiAlert("Failed to load storage data.");
+    } finally {
+        storageLoading = false;
+    }
+}
+
+function renderStorageSummary(data) {
+    const used = document.getElementById('totalUsedSize');
+    const limit = document.getElementById('storageLimitText');
+    const percent = document.getElementById('usedPercentText');
+    if (used) used.innerText = data.totalUsedFormatted;
+    if (limit) limit.innerText = `${storageLimit}`;
+    if (percent) percent.innerText = data.usedPercent + '%';
+}
+
+function renderStorageChart(data) {
+    const segments = data.breakdown;
+    const total = data.storageLimit;
+
+    const setWidth = (id, size) => {
+        const el = document.getElementById(id);
+        if (el) el.style.width = (size / total * 100) + '%';
+    };
+
+    setWidth('segmentVideo', segments.video.size);
+    setWidth('segmentPhoto', segments.photo.size);
+    setWidth('segmentDoc', segments.doc.size);
+    setWidth('segmentOther', segments.other.size);
+    
+    const freeSize = Math.max(0, total - data.totalUsed);
+    const segmentFree = document.getElementById('segmentFree');
+    if (segmentFree) segmentFree.style.width = (freeSize / total * 100) + '%';
+
+    const setLegendSize = (id, size) => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = `(${formatBytes(size)})`;
+    };
+
+    setLegendSize('legendVideoSize', segments.video.size);
+    setLegendSize('legendPhotoSize', segments.photo.size);
+    setLegendSize('legendDocSize', segments.doc.size);
+    setLegendSize('legendOtherSize', segments.other.size);
+    setLegendSize('legendFreeSize', freeSize);
+}
+
+function renderStorageFileList(files) {
+    const list = document.getElementById('storageFileList');
+    if (!list) return;
+    files.forEach(file => {
+        const item = document.createElement('div');
+        item.className = 'storage-file-item';
+        item.style.display = 'grid';
+        item.style.gridTemplateColumns = '1fr 120px';
+        item.style.padding = '12px 16px';
+        item.style.borderBottom = '1px solid #eee';
+        item.style.alignItems = 'center';
+        item.innerHTML = `
+            <div class="storage-file-name" title="${escapeHtml(file.path)}" style="display: flex; align-items: center; gap: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                <span style="color: #666; font-size: 1.2rem;">📄</span>
+                ${escapeHtml(file.name)}
+            </div>
+            <div class="storage-file-size" style="text-align: right; color: #666; font-size: 0.9rem;">${file.size_f}</div>
+        `;
+        list.appendChild(item);
+    });
+}
+
 
 // --- GLOBAL KEYBOARD EVENTS ---
 document.addEventListener('keydown', (e) => {
@@ -440,7 +588,7 @@ function updateStats(stats) {
     const bar = document.getElementById('statBar');
     bar.style.width = stats.usedPercent + '%';
     bar.className = 'progress-fill ' + (parseFloat(stats.usedPercent) > 90 ? 'critical' : (parseFloat(stats.usedPercent) > 75 ? 'warning' : ''));
-    document.getElementById('statUsedText').innerText = `${stats.used} / 100 GB`;
+    document.getElementById('statUsedText').innerText = `${stats.used} / ${storageLimit}`;
     document.getElementById('statTotalFiles').innerText = `Total Files: ${stats.totalFiles}`;
     document.getElementById('uploadBtn').disabled = stats.isFull;
 }
@@ -506,6 +654,64 @@ async function processUploadBatch(batch) {
 }
 
 function setupDragAndDrop() {
+    // Storage Button
+    const storageBtn = document.getElementById('storageBtn');
+    if (storageBtn) {
+        storageBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            showStorageView();
+            storageBtn.style.background = "#eee";
+            myFilesBtn.style.background = "";
+            
+            const url = new URL(window.location.pathname, window.location.origin);
+            url.searchParams.set('mystorage', 'quota');
+            window.history.pushState({}, '', url);
+        });
+    }
+
+    // My Files Button
+    const myFilesBtn = document.getElementById('myFilesBtn');
+    if (myFilesBtn) {
+        myFilesBtn.addEventListener('click', (e) => {
+            myFilesBtn.style.background = "#eee";
+            storageBtn.style.background = "";
+            e.preventDefault();
+            hideStorageView();
+            toggleSidebar(false);
+            
+            const url = new URL(window.location.pathname, window.location.origin);
+            window.history.pushState({}, '', url);
+            
+            fetchExplorer('', '', 1);
+        });
+    }
+
+    // Load More Storage (fallback)
+    const loadMoreStorage = document.getElementById('loadMoreStorage');
+    if (loadMoreStorage) {
+        loadMoreStorage.addEventListener('click', fetchStorageData);
+    }
+
+    // Infinite scroll for storage view
+    const explorerBody = document.querySelector('.explorer-body');
+    if (explorerBody) {
+        explorerBody.addEventListener('scroll', () => {
+            const storageView = document.getElementById('storageView');
+            if (storageView && storageView.style.display !== 'none') {
+                if (explorerBody.scrollTop + explorerBody.clientHeight >= explorerBody.scrollHeight - 100) {
+                    fetchStorageData();
+                }
+            }
+        });
+    }
+
+    // Handle back from storage (e.g. clicking Root or other folders)
+    const originalFetchExplorer = fetchExplorer;
+    fetchExplorer = function(...args) {
+        hideStorageView();
+        return originalFetchExplorer.apply(this, args);
+    };
+
     const dz = document.getElementById('dropZone');
     dz.addEventListener('dragover', (e) => { e.preventDefault(); dz.classList.add('drag-over'); });
     dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
