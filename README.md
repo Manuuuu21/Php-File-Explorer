@@ -15,4 +15,4 @@ Core Features:
 - Modern UX: Material Design 3 components, interactive context menus, and full mobile responsiveness.
 
 # Screenshots
-![Img](https://github.com/Manuuuu21/Php-File-Explorer/blob/main/{9140305F-3E36-4C73-9AE4-7766F23172A6}.png)
+![Img](https://github.com/Manuuuu21/Php-File-Explorer/blob/main/{01E8EBBC-604F-4C96-AE87-11A481C864E8}.png)
