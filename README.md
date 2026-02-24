@@ -16,3 +16,4 @@ Core Features:
 
 # Screenshots
 ![Img](https://github.com/Manuuuu21/Php-File-Explorer/blob/main/{01E8EBBC-604F-4C96-AE87-11A481C864E8}.png)
+![Img](https://github.com/Manuuuu21/Php-File-Explorer/blob/main/{95603AA9-ABCC-45E1-B915-655FAD842B76}.png)
