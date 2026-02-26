@@ -95,6 +95,7 @@ let storageLoading = false;
 let storageHasMore = true;
 
 function showStorageView() {
+    currentDir = ""; // Reset current directory to root when entering storage view
     const explorerBody = document.querySelector('.explorer-body > .data-table-container');
     const storageView = document.getElementById('storageView');
     const breadcrumbBar = document.querySelector('.breadcrumb-bar');
@@ -115,7 +116,7 @@ function showStorageView() {
     toggleSidebar(false);
 }
 
-function hideStorageView() {
+function hideStorageView(skipRender = false) {
     const explorerBody = document.querySelector('.explorer-body > .data-table-container');
     const storageView = document.getElementById('storageView');
     const breadcrumbBar = document.querySelector('.breadcrumb-bar');
@@ -126,7 +127,7 @@ function hideStorageView() {
     if (breadcrumbBar) breadcrumbBar.style.display = 'block';
     if (itemCounter) itemCounter.style.display = 'block';
     
-    renderExplorer();
+    if (!skipRender) renderExplorer();
 }
 
 async function fetchStorageData() {
@@ -304,7 +305,7 @@ document.addEventListener('click', function(event) {
     });
 });
 
-function renderExplorer() {
+function renderExplorer(loading = false) {
     const list = document.getElementById('fileListContent');
     const bc = document.getElementById('breadcrumbTrail');
     const counter = document.getElementById('itemCounter');
@@ -375,6 +376,11 @@ function renderExplorer() {
     }
 
     let html = "";
+    if (loading) {
+        list.innerHTML = `<div style="padding:30px; text-align:center; color:#999; font-size:0.9rem;">loading... Please wait</div>`;
+        return;
+    }
+
     if (!currentSearch && currentDir !== "" && currentPage === 1) {
         const parent = currentDir.split('/').slice(0, -1).join('/');
         html += `<div class="table-row folder" style="position:sticky;top:40px;background:white;z-index:1;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
@@ -393,23 +399,30 @@ function renderExplorer() {
 
         const isCut = clipboardAction === 'cut' && clipboardItems.includes(f.path);
         const isActive = activePaths.includes(f.path);
+        const isUploading = f.isUploading || f.isCreating;
         
-        let downloadBtn = !f.isDir ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
-        let contextMenu = isSharedView ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
-        let checkbox = isSharedView ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" ${isActive ? 'checked' : ''} onclick="event.stopPropagation(); updateBulkBtn()"></div>`;
-        let actions = isSharedView ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete">🗑️</span>`;
+        let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
+        let contextMenu = (isSharedView || isUploading) ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
+        let checkbox = isSharedView ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" ${isActive ? 'checked' : ''} ${isUploading ? 'disabled' : ''} onclick="event.stopPropagation(); updateBulkBtn()"></div>`;
+        let actions = (isSharedView || isUploading) ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete">🗑️</span>`;
+
+        let rowStyle = isUploading ? 'opacity: 0.6; pointer-events: none;' : '';
+        let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading... ${f.progress || 0}%</span>` : 
+                          f.isCreating ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Creating...</span>` :
+                          `<strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>`;
 
         html += `
         <div class="table-row ${f.isDir ? 'folder' : ''} ${isCut ? 'cut-item' : ''} ${isActive ? 'active-row' : ''}" 
              ${contextMenu} 
+             style="${rowStyle}"
              data-path="${escapeHtml(f.path)}" 
              data-name="${escapeHtml(f.name)}"
-             onclick="handleRowClick(event, '${escapeJs(f.path)}', ${f.isDir ? `'dir'` : `'file'`})">
+             onclick="${isUploading ? '' : `handleRowClick(event, '${escapeJs(f.path)}', ${f.isDir ? `'dir'` : `'file'`})`}">
             ${checkbox}
             <div class="col-name">
-                <span class="icon">${f.isDir ? '📁' : '📄'}</span>
+                <span class="icon">${isUploading ? '⏳' : (f.isDir ? '📁' : '📄')}</span>
                 <div style="display: flex; flex-direction: column; min-width: 0;">
-                    <strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>
+                    ${nameContent}
                     ${currentSearch ? `<span style="font-size:0.6rem; color:#888;">in ${escapeHtml(f.path.substring(0, f.path.lastIndexOf('/')) || 'Root')}</span>` : ''}
                 </div>
             </div>
@@ -569,11 +582,15 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
 
         if (updateHistory) {
             const searchParams = new URLSearchParams(window.location.search);
+            searchParams.delete('mystorage');
             if (dir) searchParams.set('dir', dir); else searchParams.delete('dir');
             if (search) searchParams.set('search', search); else searchParams.delete('search');
             if (page > 1) searchParams.set('page', page); else searchParams.delete('page');
             
-            const newUrl = window.location.pathname + '?' + searchParams.toString();
+            let newUrl = window.location.pathname;
+            const qs = searchParams.toString();
+            if (qs) newUrl += '?' + qs;
+            
             window.history.pushState({ dir, search, page }, '', newUrl);
         }
     } catch (e) { console.error(e); if (!isSharedView) uiAlert("Load failed."); }
@@ -609,10 +626,45 @@ async function processUploadBatch(batch) {
     const speedLabel = document.getElementById('uploadSpeed');
     const sizeLabel = document.getElementById('uploadSizeBadge');
 
+    const isStorageView = document.getElementById('storageView').style.display === 'flex';
+    
+    // If in storage view, switch to Root immediately for better responsiveness
+    if (isStorageView) {
+        const storageBtn = document.getElementById('storageBtn');
+        const myFilesBtn = document.getElementById('myFilesBtn');
+        if (storageBtn) storageBtn.style.background = "";
+        if (myFilesBtn) myFilesBtn.style.background = "#eee";
+        hideStorageView(true);
+        currentDir = "";
+        currentItems = [];
+        renderExplorer(true); // Show loading while we prepare the optimistic list
+    }
+
+    // Optimistic: Add uploading items to the explorer
+    batch.forEach(item => {
+        const fileName = item.relativePath || item.file.name;
+        // Check if already exists to avoid duplicates
+        if (!currentItems.find(i => i.name === fileName)) {
+            currentItems.unshift({
+                name: fileName,
+                path: (isStorageView ? "" : currentDir) + ((isStorageView ? "" : currentDir) ? '/' : '') + fileName,
+                isDir: item.file.webkitRelativePath ? true : false,
+                size_f: formatBytes(item.file.size),
+                type: item.file.name.split('.').pop() || 'file',
+                mtime_f: 'Just now',
+                isUploading: true,
+                progress: 0
+            });
+            totalItems++;
+        }
+    });
+    renderExplorer();
+
     card.style.display = 'flex';
     
     for (let i = 0; i < batch.length; i++) {
         const item = batch[i];
+        const fileName = item.relativePath || item.file.name;
         const formData = new FormData();
         formData.append('upload[]', item.file);
         if (item.relativePath) formData.append('relativePath', item.relativePath);
@@ -627,10 +679,21 @@ async function processUploadBatch(batch) {
             
             xhr.upload.onprogress = e => {
                 if (e.lengthComputable) {
-                    const percent = (e.loaded / e.total) * 100;
+                    const percent = Math.round((e.loaded / e.total) * 100);
                     const elapsed = (Date.now() - startTime) / 1000;
                     const speed = elapsed > 0 ? e.loaded / elapsed : 0;
                     bar.style.width = percent + '%';
+                    
+                    // Update individual item progress in UI (Direct DOM update for speed)
+                    const uploadingItem = currentItems.find(it => it.name === fileName && it.isUploading);
+                    if (uploadingItem) {
+                        uploadingItem.progress = percent;
+                        const progressSpan = document.querySelector(`[data-upload-progress="${escapeHtml(fileName)}"]`);
+                        if (progressSpan) {
+                            progressSpan.innerText = `Uploading... ${percent}%`;
+                        }
+                    }
+
                     if (percent >= 100) {
                         nameLabel.innerText = `${item.file.name} (Finalizing...)`;
                         speedLabel.innerText = "Processing...";
@@ -642,15 +705,26 @@ async function processUploadBatch(batch) {
                 }
             };
             xhr.onreadystatechange = () => { if (xhr.readyState === 4) { if (xhr.status === 200) resolve(); else reject(); } };
-            xhr.open('POST', `${window.location.pathname}?dir=${encodeURIComponent(currentDir)}&action=upload&ajax=1`, true);
+            const uploadDir = isStorageView ? "" : currentDir;
+            xhr.open('POST', `${window.location.pathname}?dir=${encodeURIComponent(uploadDir)}&action=upload&ajax=1`, true);
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
             xhr.send(formData);
         });
-        try { await uploadPromise; } catch (e) { if (currentXhr) break; }
+        try { 
+            await uploadPromise; 
+            // Mark as done uploading but wait for full refresh
+        } catch (e) { 
+            if (currentXhr) break; 
+        }
     }
     card.style.display = 'none';
     currentXhr = null;
-    fetchExplorer(currentDir, currentSearch, currentPage);
+
+    if (isStorageView) {
+        await fetchExplorer('', '', 1);
+    } else {
+        await fetchExplorer(currentDir, currentSearch, currentPage);
+    }
 }
 
 function setupDragAndDrop() {
@@ -756,7 +830,27 @@ function closeModal(id) {
     }, 300); 
 }
 
-function deleteItem(path, name) { uiConfirm(`Delete "${name}"?`, async () => { await fetch(`?delete=${encodeURIComponent(path)}&ajax=1`); fetchExplorer(currentDir, currentSearch, currentPage); }); }
+function deleteItem(path, name) { 
+    uiConfirm(`Delete "${name}"?`, async () => { 
+        // Optimistic UI: Remove from list immediately
+        const index = currentItems.findIndex(i => i.path === path);
+        if (index !== -1) {
+            currentItems.splice(index, 1);
+            totalItems--;
+            renderExplorer();
+        }
+        
+        try {
+            const res = await fetch(`?delete=${encodeURIComponent(path)}&ajax=1`);
+            if (!res.ok) throw new Error("Delete failed");
+            // Refresh stats and actual list in background
+            fetchExplorer(currentDir, currentSearch, currentPage, false);
+        } catch (e) {
+            uiAlert(`Failed to delete "${name}".`);
+            fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
+        }
+    }); 
+}
 function changeSort(key) { if (sortKey === key) sortOrder *= -1; else { sortKey = key; sortOrder = 1; } fetchExplorer(currentDir, currentSearch, 1); }
 function toggleSelectAll(m) { document.getElementsByName('selected_items[]').forEach(cb => { cb.checked = m.checked; }); updateBulkBtn(); }
 
@@ -907,12 +1001,44 @@ function uiConfirm(msg, ok) { document.getElementById('confirmText').innerText =
 function uiAlert(msg) { document.getElementById('alertText').innerText = msg; openModal('alertModal'); }
 async function submitNewFolder() { 
     const n = document.getElementById('newFolderName').value.trim(); if (!n) return;
+    
+    // Optimistic UI
+    if (currentItems.find(i => i.name === n)) {
+        uiAlert("Folder already exists.");
+        return;
+    }
+
+    const optimisticFolder = {
+        name: n,
+        path: currentDir + (currentDir ? '/' : '') + n,
+        isDir: true,
+        size_f: '-',
+        type: 'folder',
+        mtime_f: 'Just now',
+        isCreating: true
+    };
+
+    currentItems.unshift(optimisticFolder);
+    totalItems++;
+    renderExplorer();
+    
+    closeModal('folderModal');
+    document.getElementById('newFolderName').value = "";
+
     const fd = new FormData(); fd.append('newfolder', n); 
     try {
-        const res = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd})).json();
-        if (res.success) { closeModal('folderModal'); document.getElementById('newFolderName').value = ""; fetchExplorer(currentDir, currentSearch, currentPage); }
-        else uiAlert("Folder already exists or invalid name.");
-    } catch(e) { uiAlert("Error creating folder."); }
+        const response = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+        const res = await response.json();
+        if (res.success) { 
+            fetchExplorer(currentDir, currentSearch, currentPage, false); 
+        } else {
+            uiAlert("Folder already exists or invalid name.");
+            fetchExplorer(currentDir, currentSearch, currentPage);
+        }
+    } catch(e) { 
+        uiAlert("Error creating folder."); 
+        fetchExplorer(currentDir, currentSearch, currentPage);
+    }
 }
 function handleSearchKeyUp(e) { if(e.key === 'Enter') fetchExplorer(currentDir, e.target.value.trim(), 1); }
 function clearSearch() { document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
@@ -920,10 +1046,26 @@ function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null;
 
 function submitBulkDelete() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
+    if (!checked.length) return;
+    
     uiConfirm(`Delete ${checked.length} items?`, async () => {
-        const fd = new FormData(); fd.append('bulk_delete', '1'); checked.forEach(v => fd.append('selected_items[]', v));
-        await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd}); 
-        fetchExplorer(currentDir, currentSearch, currentPage);
+        // Optimistic UI: Remove from list immediately
+        currentItems = currentItems.filter(i => !checked.includes(i.path));
+        totalItems -= checked.length;
+        renderExplorer();
+        
+        const fd = new FormData(); 
+        fd.append('bulk_delete', '1'); 
+        checked.forEach(v => fd.append('selected_items[]', v));
+        
+        try {
+            const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+            if (!res.ok) throw new Error("Bulk delete failed");
+            fetchExplorer(currentDir, currentSearch, currentPage, false);
+        } catch (e) {
+            uiAlert("Failed to delete some items.");
+            fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
+        }
     });
 }
 
