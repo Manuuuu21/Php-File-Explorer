@@ -26,7 +26,7 @@ let currentMediaIndex = -1;
 
 let storageLimit = `100 GB`;
 
-const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js'];
+const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js', 'xlsx', 'xls'];
 
 // --- HELPERS ---
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
@@ -958,11 +958,109 @@ function loadMedia() {
             } catch (e) {
                 container.innerHTML = `<div style="color:white; padding:20px;">Error loading file content.</div>`;
             }
+        } else if (['xlsx', 'xls'].includes(ext)) {
+            container.innerHTML = `<div class="excel-viewer-container" id="excelViewer">
+                <div style="color: white; padding: 20px;">Loading Spreadsheet...</div>
+            </div>`;
+            renderExcel(url);
         } else {
             container.innerHTML = `<img src="${url}" style="max-height:70vh; max-width:100%">`;
         }
         container.style.opacity = '1';
     }, 150);
+}
+
+async function renderExcel(url) {
+    const container = document.getElementById('excelViewer');
+    try {
+        const response = await fetch(url);
+        const arrayBuffer = await response.arrayBuffer();
+        const data = new Uint8Array(arrayBuffer);
+        const workbook = XLSX.read(data, { type: 'array' });
+        
+        container.innerHTML = ''; // Clear loading message
+        
+        // Create tab navigation for sheets
+        const tabsContainer = document.createElement('div');
+        tabsContainer.className = 'excel-tabs';
+        
+        const gridContainer = document.createElement('div');
+        gridContainer.className = 'excel-grid-viewport';
+        
+        workbook.SheetNames.forEach((sheetName, index) => {
+            const tab = document.createElement('div');
+            tab.className = `excel-tab ${index === 0 ? 'active' : ''}`;
+            tab.innerText = sheetName;
+            tab.onclick = () => {
+                document.querySelectorAll('.excel-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+                displaySheet(workbook.Sheets[sheetName], gridContainer);
+            };
+            tabsContainer.appendChild(tab);
+        });
+        
+        container.appendChild(gridContainer);
+        container.appendChild(tabsContainer);
+        
+        // Display first sheet by default
+        displaySheet(workbook.Sheets[workbook.SheetNames[0]], gridContainer);
+        
+    } catch (error) {
+        console.error('Error rendering Excel:', error);
+        container.innerHTML = `<div style="color: #ff8a80; padding: 20px;">Error loading Spreadsheet: ${error.message}</div>`;
+    }
+}
+
+function displaySheet(sheet, container) {
+    const html = XLSX.utils.sheet_to_html(sheet, { editable: false });
+    container.innerHTML = html;
+    
+    // Post-process the table to add Excel-like styling
+    const table = container.querySelector('table');
+    if (table) {
+        table.className = 'excel-table';
+        
+        // Add row numbers and column headers if they don't exist
+        const rows = table.querySelectorAll('tr');
+        
+        // Add column headers (A, B, C...)
+        if (rows.length > 0) {
+            const firstRow = rows[0];
+            const colCount = firstRow.querySelectorAll('td').length;
+            const headerRow = document.createElement('tr');
+            headerRow.className = 'excel-header-row';
+            
+            // Corner cell
+            const corner = document.createElement('th');
+            corner.className = 'excel-corner';
+            headerRow.appendChild(corner);
+            
+            for (let i = 0; i < colCount; i++) {
+                const th = document.createElement('th');
+                th.className = 'excel-col-header';
+                th.innerText = getColumnLabel(i);
+                headerRow.appendChild(th);
+            }
+            table.querySelector('tbody').insertBefore(headerRow, firstRow);
+        }
+        
+        // Add row numbers (1, 2, 3...)
+        rows.forEach((row, index) => {
+            const th = document.createElement('th');
+            th.className = 'excel-row-header';
+            th.innerText = index + 1;
+            row.insertBefore(th, row.firstChild);
+        });
+    }
+}
+
+function getColumnLabel(index) {
+    let label = '';
+    while (index >= 0) {
+        label = String.fromCharCode((index % 26) + 65) + label;
+        index = Math.floor(index / 26) - 1;
+    }
+    return label;
 }
 
 async function renderPdf(url) {

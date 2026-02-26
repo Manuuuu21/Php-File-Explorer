@@ -651,6 +651,7 @@ if ($isAjax) {
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'util-lib/pdf.worker.min.js';
     </script>
     <script src="util-lib/ace.js"></script>
+    <script src="util-lib/xlsx.full.min.js"></script>
 </head>
 <body>
 

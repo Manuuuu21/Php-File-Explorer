@@ -461,6 +461,112 @@ input[type="checkbox"] {
     border-radius: 4px;
 }
 
+/* Excel Viewer Styles */
+.excel-viewer-container {
+    width: 100%;
+    height: 70vh;
+    display: flex;
+    flex-direction: column;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    color: #333;
+}
+
+.excel-grid-viewport {
+    flex: 1;
+    overflow: auto;
+    background: #f3f3f3;
+    position: relative;
+}
+
+.excel-table {
+    border-collapse: collapse;
+    background: white;
+    font-size: 13px;
+    table-layout: fixed;
+}
+
+.excel-table td {
+    border: 1px solid #d1d1d1;
+    padding: 4px 8px;
+    min-width: 80px;
+    height: 22px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.excel-header-row th {
+    background: #f8f9fa;
+    border: 1px solid #d1d1d1;
+    font-weight: normal;
+    color: #666;
+    height: 24px;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.excel-row-header {
+    background: #f8f9fa;
+    border: 1px solid #d1d1d1;
+    font-weight: normal;
+    color: #666;
+    width: 40px;
+    text-align: center;
+    position: sticky;
+    left: 0;
+    z-index: 2;
+}
+
+.excel-corner {
+    background: #f8f9fa;
+    border: 1px solid #d1d1d1;
+    position: sticky;
+    top: 0;
+    left: 0;
+    z-index: 3;
+}
+
+.excel-tabs {
+    display: flex;
+    background: #f8f9fa;
+    border-top: 1px solid #d1d1d1;
+    padding: 0 10px;
+    height: 32px;
+    align-items: center;
+    gap: 2px;
+}
+
+.excel-tab {
+    padding: 4px 16px;
+    font-size: 12px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+    color: #555;
+    background: #f8f9fa;
+    transition: 0.2s;
+    height: 24px;
+    display: flex;
+    align-items: center;
+}
+
+.excel-tab:hover {
+    background: #eee;
+}
+
+.excel-tab.active {
+    background: white;
+    border-color: #d1d1d1;
+    color: #107c41;
+    font-weight: 500;
+    box-shadow: 0 2px 0 white;
+    z-index: 1;
+}
+
 /* Standard Controls */
 .m3-input { width: 100%; padding: 14px; border: 1px solid var(--outline); border-radius: 12px; box-sizing: border-box; font-size: 1rem; background: transparent; transition: border 0.2s; }
 .m3-input:focus { outline: none; border: 2px solid var(--primary); padding: 13px; }
