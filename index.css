@@ -508,6 +508,25 @@ input[type="checkbox"] {
     z-index: 2;
 }
 
+.excel-col-header {
+    position: relative;
+    cursor: default;
+}
+
+.excel-col-resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 4px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 10;
+}
+
+.excel-col-resize-handle:hover {
+    background: #107c41;
+}
+
 .excel-row-header {
     background: #f8f9fa;
     border: 1px solid #d1d1d1;
@@ -518,6 +537,21 @@ input[type="checkbox"] {
     position: sticky;
     left: 0;
     z-index: 2;
+    position: relative;
+}
+
+.excel-row-resize-handle {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    cursor: row-resize;
+    z-index: 10;
+}
+
+.excel-row-resize-handle:hover {
+    background: #107c41;
 }
 
 .excel-corner {

@@ -1081,6 +1081,12 @@ function displaySheet(sheet, container) {
                 const th = document.createElement('th');
                 th.className = 'excel-col-header';
                 th.innerText = getColumnLabel(i);
+                
+                const handle = document.createElement('div');
+                handle.className = 'excel-col-resize-handle';
+                handle.onmousedown = (e) => initResize(e, 'col', th, i, table);
+                th.appendChild(handle);
+                
                 headerRow.appendChild(th);
             }
             table.querySelector('tbody').insertBefore(headerRow, firstRow);
@@ -1091,9 +1097,64 @@ function displaySheet(sheet, container) {
             const th = document.createElement('th');
             th.className = 'excel-row-header';
             th.innerText = index + 1;
+            
+            const handle = document.createElement('div');
+            handle.className = 'excel-row-resize-handle';
+            handle.onmousedown = (e) => initResize(e, 'row', th, index, table);
+            th.appendChild(handle);
+            
             row.insertBefore(th, row.firstChild);
         });
     }
+}
+
+function initResize(e, type, header, index, table) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const startPos = type === 'col' ? e.pageX : e.pageY;
+    const startSize = type === 'col' ? header.offsetWidth : header.offsetHeight;
+
+    const onMouseMove = (moveEvent) => {
+        const delta = (type === 'col' ? moveEvent.pageX : moveEvent.pageY) - startPos;
+        const newSize = Math.max(20, startSize + delta);
+        
+        if (type === 'col') {
+            // Set width for all cells in this column
+            const colIndex = index + 1; // +1 because of row header
+            const rows = table.querySelectorAll('tr');
+            rows.forEach(row => {
+                const cell = row.children[colIndex];
+                if (cell) {
+                    cell.style.width = newSize + 'px';
+                    cell.style.minWidth = newSize + 'px';
+                    cell.style.maxWidth = newSize + 'px';
+                }
+            });
+            // Also set width for the header itself
+            header.style.width = newSize + 'px';
+            header.style.minWidth = newSize + 'px';
+            header.style.maxWidth = newSize + 'px';
+        } else {
+            // Set height for the entire row
+            const row = header.parentElement;
+            row.style.height = newSize + 'px';
+            // Ensure all cells in the row respect the height
+            Array.from(row.children).forEach(cell => {
+                cell.style.height = newSize + 'px';
+            });
+        }
+    };
+
+    const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+        document.body.style.cursor = '';
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.body.style.cursor = type === 'col' ? 'col-resize' : 'row-resize';
 }
 
 function getColumnLabel(index) {
