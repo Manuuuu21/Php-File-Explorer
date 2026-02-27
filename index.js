@@ -399,7 +399,7 @@ function renderExplorer(loading = false) {
 
         const isCut = clipboardAction === 'cut' && clipboardItems.includes(f.path);
         const isActive = activePaths.includes(f.path);
-        const isUploading = f.isUploading || f.isCreating;
+        const isUploading = f.isUploading || f.isCreating || f.isMoving || f.isCopying;
         
         let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
         let contextMenu = (isSharedView || isUploading) ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
@@ -409,6 +409,8 @@ function renderExplorer(loading = false) {
         let rowStyle = isUploading ? 'opacity: 0.6; pointer-events: none;' : '';
         let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading... ${f.progress || 0}%</span>` : 
                           f.isCreating ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Creating...</span>` :
+                          f.isMoving ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Moving...</span>` :
+                          f.isCopying ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Copying...</span>` :
                           `<strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>`;
 
         html += `
@@ -482,34 +484,51 @@ function handleRowClick(e, path, itemType) {
 
 function showSnackbar(message, options = {}) {
     const container = document.getElementById('snackbarContainer');
+    if (!container) return;
+
+    const duration = options.duration || 3000;
     const snackbar = document.createElement('div');
     snackbar.className = 'snackbar';
     
     let actionsHtml = '';
     if (options.actionText) {
-        actionsHtml = `<button class="snackbar-btn" onclick="${options.actionCallback || ''}">${options.actionText}</button>`;
+        actionsHtml = `<button class="snackbar-btn">${escapeHtml(options.actionText)}</button>`;
     }
     
     snackbar.innerHTML = `
-        <div class="snackbar-content">${message}</div>
+        <div class="snackbar-content">${escapeHtml(message)}</div>
         <div class="snackbar-actions">
             ${actionsHtml}
-            <button class="snackbar-close" onclick="this.parentElement.parentElement.classList.add('out'); setTimeout(() => this.parentElement.parentElement.remove(), 300)">✕</button>
+            <button class="snackbar-close">&times;</button>
         </div>
     `;
     
     container.appendChild(snackbar);
-    
-    if (!options.persistent) {
+
+    const close = () => {
+        if (snackbar.classList.contains('out')) return;
+        snackbar.classList.add('out');
         setTimeout(() => {
-            if (snackbar.parentElement) {
-                snackbar.classList.add('out');
-                setTimeout(() => snackbar.remove(), 300);
+            if (snackbar.parentNode === container) {
+                container.removeChild(snackbar);
             }
-        }, options.duration || 5000);
+        }, 300);
+    };
+
+    snackbar.querySelector('.snackbar-close').onclick = close;
+
+    if (options.actionText && options.actionCallback) {
+        snackbar.querySelector('.snackbar-btn').onclick = () => {
+            options.actionCallback();
+            close();
+        };
+    }
+
+    if (!options.persistent) {
+        setTimeout(close, duration);
     }
     
-    return snackbar;
+    return { close };
 }
 
 async function pasteItems() {
@@ -529,10 +548,31 @@ async function pasteItems() {
     const count = clipboardItems.length;
 
     try {
+        clipboardItems.forEach(path => {
+            const name = path.split('/').pop();
+            const item = currentItems.find(i => i.path === path);
+            if (item) {
+                if (clipboardAction === 'cut') item.isMoving = true;
+                else item.isCopying = true;
+            } else {
+                // Optimistic UI for items coming from other folders
+                const optimisticItem = {
+                    name: name,
+                    path: currentDir + (currentDir ? '/' : '') + name,
+                    isDir: false, // Default to file for placeholder
+                    size_f: '-',
+                    type: 'item',
+                    mtime_f: 'Just now',
+                    isMoving: clipboardAction === 'cut',
+                    isCopying: clipboardAction === 'copy'
+                };
+                currentItems.unshift(optimisticItem);
+            }
+        });
+        renderExplorer();
         const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
         
-        transferSnackbar.classList.add('out');
-        setTimeout(() => transferSnackbar.remove(), 300);
+        transferSnackbar.close();
 
         if(result.error) {
             uiAlert(`Paste failed: ${result.error}`);
@@ -546,9 +586,9 @@ async function pasteItems() {
             fetchExplorer(currentDir, currentSearch, currentPage);
         }
     } catch(e) { 
-        transferSnackbar.classList.add('out');
-        setTimeout(() => transferSnackbar.remove(), 300);
+        transferSnackbar.close();
         uiAlert("An error occurred during the paste operation."); 
+        fetchExplorer(currentDir, currentSearch, currentPage);
     }
 }
 
@@ -725,6 +765,7 @@ async function processUploadBatch(batch) {
     } else {
         await fetchExplorer(currentDir, currentSearch, currentPage);
     }
+    showSnackbar(`${batch.length} file(s) uploaded successfully.`);
 }
 
 function setupDragAndDrop() {
@@ -843,6 +884,7 @@ function deleteItem(path, name) {
         try {
             const res = await fetch(`?delete=${encodeURIComponent(path)}&ajax=1`);
             if (!res.ok) throw new Error("Delete failed");
+            showSnackbar(`"${name}" deleted successfully.`);
             // Refresh stats and actual list in background
             fetchExplorer(currentDir, currentSearch, currentPage, false);
         } catch (e) {
@@ -1097,6 +1139,7 @@ async function renderPdf(url) {
 function navigateMedia(d) { if (mediaItems.length <= 1) return; currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length; loadMedia(); }
 function uiConfirm(msg, ok) { document.getElementById('confirmText').innerText = msg; document.getElementById('confirmOkBtn').onclick = () => { ok(); closeModal('confirmModal'); }; openModal('confirmModal'); }
 function uiAlert(msg) { document.getElementById('alertText').innerText = msg; openModal('alertModal'); }
+
 async function submitNewFolder() { 
     const n = document.getElementById('newFolderName').value.trim(); if (!n) return;
     
@@ -1128,6 +1171,7 @@ async function submitNewFolder() {
         const response = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
         const res = await response.json();
         if (res.success) { 
+            showSnackbar(`Folder "${n}" created.`);
             fetchExplorer(currentDir, currentSearch, currentPage, false); 
         } else {
             uiAlert("Folder already exists or invalid name.");
@@ -1138,9 +1182,9 @@ async function submitNewFolder() {
         fetchExplorer(currentDir, currentSearch, currentPage);
     }
 }
-function handleSearchKeyUp(e) { if(e.key === 'Enter') fetchExplorer(currentDir, e.target.value.trim(), 1); }
-function clearSearch() { document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
-function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; fetchExplorer(currentDir, currentSearch, currentPage); }
+function handleSearchKeyUp(e) { const storageBtn = document.getElementById('storageBtn'); const myFilesBtn = document.getElementById('myFilesBtn'); if(e.key === 'Enter') {fetchExplorer(currentDir, e.target.value.trim(), 1); storageBtn.style.background = ""; myFilesBtn.style.background = "";} }
+function clearSearch() { const myFilesBtn = document.getElementById('myFilesBtn'); myFilesBtn.style.background = "#eee"; document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
+function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; fetchExplorer(currentDir, currentSearch, currentPage); showSnackbar("Upload cancelled."); }
 
 function submitBulkDelete() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
@@ -1158,7 +1202,9 @@ function submitBulkDelete() {
         
         try {
             const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+            const resJson = await res.json();
             if (!res.ok) throw new Error("Bulk delete failed");
+            showSnackbar(`${checked.length} items deleted.`);
             fetchExplorer(currentDir, currentSearch, currentPage, false);
         } catch (e) {
             uiAlert("Failed to delete some items.");
@@ -1183,7 +1229,17 @@ function renamePrompt() {
     document.getElementById('promptOkBtn').onclick = async () => {
         const n = document.getElementById('promptInput').value.trim(); if (!n) return;
         const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', n);
-        await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd}); 
+        try {
+            const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+            const result = await res.json();
+            if (result.success) {
+                showSnackbar(`Renamed to "${n}"`);
+            } else {
+                showSnackbar(`Rename failed: ${result.error || 'Unknown error'}`, { duration: 5000 });
+            }
+        } catch (e) {
+            showSnackbar("Rename error occurred.", { duration: 5000 });
+        }
         closeModal('promptModal'); fetchExplorer(currentDir, currentSearch, currentPage);
     };
     openModal('promptModal');
@@ -1214,6 +1270,7 @@ function copyShareLink() {
     input.select();
     document.execCommand('copy');
     button.textContent = 'Copied!';
+    showSnackbar("Link copied to clipboard.");
     setTimeout(() => { button.textContent = 'Copy'; }, 2000);
 }
 
@@ -1237,8 +1294,17 @@ function movePrompt() {
             fd.append('move_file', movingItems[0]); fd.append('move_target', targetPath);
         }
         try {
+            movingItems.forEach(path => {
+                const item = currentItems.find(i => i.path === path);
+                if (item) item.isMoving = true;
+            });
+            renderExplorer();
             const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
-            if(result.error) uiAlert(`Move failed: ${result.error}`);
+            if(result.error) {
+                uiAlert(`Move failed: ${result.error}`);
+            } else {
+                showSnackbar(`Moved ${movingItems.length} item(s) successfully.`);
+            }
         } catch(e) { uiAlert("An error occurred during the move operation."); }
         finally { closeModal('promptModal'); fetchExplorer(currentDir, currentSearch, currentPage); }
     };
