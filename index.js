@@ -24,7 +24,7 @@ let currentXhr = null;
 let mediaItems = [];
 let currentMediaIndex = -1;
 
-let storageLimit = `100 GB`;
+let storageLimit = `100 GB`; // This is only for txt display. Make sure it is sync in the php code storagelimit.
 
 const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js', 'xlsx', 'xls'];
 
@@ -916,13 +916,15 @@ function updateBulkBtn() {
         bulkActions.style.display = 'flex';
         document.getElementById('bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
         document.getElementById('bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
-        document.getElementById('bulkZipBtn').innerHTML = `📦 ZIP (${checkedCount})`;
+        document.getElementById('bulkZipBtn').innerHTML = `📦 Download as ZIP (${checkedCount})`;
 
         document.getElementById('m-dropdown-bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
         document.getElementById('m-dropdown-bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
-        document.getElementById('m-dropdown-bulkZipBtn').innerHTML = `📦 ZIP (${checkedCount})`;
+        document.getElementById('m-dropdown-bulkZipBtn').innerHTML = `📦 Download as ZIP (${checkedCount})`;
 
+        document.getElementById('contextMenubulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
         document.getElementById('contextMenubulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
+        document.getElementById('contextMenubulkZipBtn').innerHTML = `📦 Download as ZIP (${checkedCount})`;
     } else {
         bulkActions.style.display = 'none';
     }

@@ -724,7 +724,7 @@ if ($isAjax) {
                         <div class="desktop-bulk-actions">
                             <button class="btn btn-tonal-danger bulkDeleteBtn" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
                             <button class="btn btn-tonal-primary bulkMoveBtn" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
-                            <button class="btn btn-tonal-primary bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</button>
+                            <button class="btn btn-tonal-primary bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</button>
                         </div>
                         <div class="mobile-bulk-actions">
                             <div class="breadcrumb-dropdown">
@@ -732,7 +732,7 @@ if ($isAjax) {
                                 <div class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
                                     <a id="m-dropdown-bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</a>
                                     <a id="m-dropdown-bulkMoveBtn" onclick="movePrompt()">➡️ Move</a>
-                                    <a id="m-dropdown-bulkZipBtn" onclick="submitBulkZip()">📦 ZIP</a>
+                                    <a id="m-dropdown-bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</a>
                                 </div>
                             </div>
                         </div>
@@ -835,7 +835,8 @@ if ($isAjax) {
     <div id="contextMenu" class="context-menu">
         <div onclick="sharePrompt()">🔗 Share link</div>
         <div onclick="renamePrompt()">✏️ Rename</div>
-        <div onclick="movePrompt()">➡️ Move this file</div>
+        <div id="contextMenubulkMoveBtn" onclick="movePrompt()">➡️ Move</div>
+        <div id="contextMenubulkZipBtn" onclick="submitBulkDelete()">📦 Download as ZIP</div>
         <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</div>
     </div>
     <?php endif; ?>
