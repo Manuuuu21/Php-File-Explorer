@@ -221,7 +221,7 @@ $relativeDir = str_replace(DIRECTORY_SEPARATOR, '/', ltrim(str_replace($realBase
 
 // Pagination & Sort Params
 $page = (int)($_GET['page'] ?? 1);
-$perPage = 50;
+$perPage = empty($searchQuery) ? 100000 : 50;
 $sortKey = $_GET['sort'] ?? 'name';
 $sortOrder = (int)($_GET['order'] ?? 1);
 
@@ -722,17 +722,17 @@ if ($isAjax) {
                     <?php if (!$is_shared_view): ?>
                     <div id="bulkActions" class="bulk-actions-group" style="display: none;">
                         <div class="desktop-bulk-actions">
-                            <button class="btn btn-tonal-danger bulkDeleteBtn" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
                             <button class="btn btn-tonal-primary bulkMoveBtn" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
                             <button class="btn btn-tonal-primary bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</button>
+                            <button class="btn btn-tonal-danger bulkDeleteBtn" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
                         </div>
                         <div class="mobile-bulk-actions">
                             <div class="breadcrumb-dropdown">
                                 <button class="btn btn-tonal-primary" onclick="toggleBreadcrumbDropdown(this)">⚡ Actions</button>
                                 <div class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
-                                    <a id="m-dropdown-bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</a>
                                     <a id="m-dropdown-bulkMoveBtn" onclick="movePrompt()">➡️ Move</a>
                                     <a id="m-dropdown-bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</a>
+                                    <a id="m-dropdown-bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</a>
                                 </div>
                             </div>
                         </div>

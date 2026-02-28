@@ -408,7 +408,7 @@ function renderExplorer(loading = false) {
 
         let rowStyle = isUploading ? 'opacity: 0.6; pointer-events: none;' : '';
         let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading... ${f.progress || 0}%</span>` : 
-                          f.isCreating ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Creating...</span>` :
+                          f.isCreating ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Creating folder...</span>` :
                           f.isMoving ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Moving...</span>` :
                           f.isCopying ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Copying...</span>` :
                           f.isDeleting ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Deleting...</span>` :
@@ -615,6 +615,9 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
         currentPage = data.page;
         totalItems = data.totalCount;
         perPage = data.perPage;
+
+        const myFilesBtn = document.getElementById('myFilesBtn');
+        myFilesBtn.style.background = "#eee";
 
         renderExplorer();
         if (!isSharedView) {
