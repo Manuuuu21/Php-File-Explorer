@@ -684,16 +684,27 @@ async function processUploadBatch(batch) {
     }
 
     // Optimistic: Add uploading items to the explorer
+    const addedTopLevels = new Set();
     batch.forEach(item => {
-        const fileName = item.relativePath || item.file.name;
+        let targetName = item.file.name;
+        let isDir = false;
+
+        if (item.relativePath && item.relativePath.includes('/')) {
+            targetName = item.relativePath.split('/')[0];
+            isDir = true;
+        }
+
+        if (addedTopLevels.has(targetName)) return;
+        addedTopLevels.add(targetName);
+
         // Check if already exists to avoid duplicates
-        if (!currentItems.find(i => i.name === fileName)) {
+        if (!currentItems.find(i => i.name === targetName)) {
             currentItems.unshift({
-                name: fileName,
-                path: (isStorageView ? "" : currentDir) + ((isStorageView ? "" : currentDir) ? '/' : '') + fileName,
-                isDir: item.file.webkitRelativePath ? true : false,
-                size_f: formatBytes(item.file.size),
-                type: item.file.name.split('.').pop() || 'file',
+                name: targetName,
+                path: (isStorageView ? "" : currentDir) + ((isStorageView ? "" : currentDir) ? '/' : '') + targetName,
+                isDir: isDir,
+                size_f: isDir ? '-' : formatBytes(item.file.size),
+                type: isDir ? 'folder' : (item.file.name.split('.').pop() || 'file'),
                 mtime_f: 'Just now',
                 isUploading: true,
                 progress: 0
@@ -728,12 +739,21 @@ async function processUploadBatch(batch) {
                     bar.style.width = percent + '%';
                     
                     // Update individual item progress in UI (Direct DOM update for speed)
-                    const uploadingItem = currentItems.find(it => it.name === fileName && it.isUploading);
+                    let targetProgressName = item.file.name;
+                    if (item.relativePath && item.relativePath.includes('/')) {
+                        targetProgressName = item.relativePath.split('/')[0];
+                    }
+
+                    const uploadingItem = currentItems.find(it => it.name === targetProgressName && it.isUploading);
                     if (uploadingItem) {
                         uploadingItem.progress = percent;
-                        const progressSpan = document.querySelector(`[data-upload-progress="${escapeHtml(fileName)}"]`);
+                        const progressSpan = document.querySelector(`[data-upload-progress="${escapeHtml(targetProgressName)}"]`);
                         if (progressSpan) {
-                            progressSpan.innerText = `Uploading... ${percent}%`;
+                            if (item.relativePath && item.relativePath.includes('/')) {
+                                progressSpan.innerText = `Uploading...`;
+                            } else {
+                                progressSpan.innerText = `Uploading... ${percent}%`;
+                            }
                         }
                     }
 
