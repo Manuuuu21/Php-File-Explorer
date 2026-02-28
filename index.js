@@ -399,7 +399,7 @@ function renderExplorer(loading = false) {
 
         const isCut = clipboardAction === 'cut' && clipboardItems.includes(f.path);
         const isActive = activePaths.includes(f.path);
-        const isUploading = f.isUploading || f.isCreating || f.isMoving || f.isCopying;
+        const isUploading = f.isUploading || f.isCreating || f.isMoving || f.isCopying || f.isDeleting;
         
         let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
         let contextMenu = (isSharedView || isUploading) ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
@@ -411,6 +411,7 @@ function renderExplorer(loading = false) {
                           f.isCreating ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Creating...</span>` :
                           f.isMoving ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Moving...</span>` :
                           f.isCopying ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Copying...</span>` :
+                          f.isDeleting ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Deleting...</span>` :
                           `<strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>`;
 
         html += `
@@ -550,18 +551,20 @@ async function pasteItems() {
     try {
         clipboardItems.forEach(path => {
             const name = path.split('/').pop();
-            const item = currentItems.find(i => i.path === path);
-            if (item) {
-                if (clipboardAction === 'cut') item.isMoving = true;
-                else item.isCopying = true;
+            const itemInView = currentItems.find(i => i.path === path);
+            
+            if (clipboardAction === 'cut' && itemInView) {
+                // Moving from current folder: mark the original as moving
+                itemInView.isMoving = true;
             } else {
-                // Optimistic UI for items coming from other folders
+                // Copying (from anywhere) or Moving from another folder: create a new optimistic row
+                const optimisticName = clipboardAction === 'copy' ? `${name} (copy)` : name;
                 const optimisticItem = {
-                    name: name,
-                    path: currentDir + (currentDir ? '/' : '') + name,
-                    isDir: false, // Default to file for placeholder
+                    name: optimisticName,
+                    path: 'optimistic_' + Math.random(), // Temporary unique path to avoid collisions
+                    isDir: itemInView ? itemInView.isDir : (path.endsWith('/') || name.indexOf('.') === -1), // Heuristic for dir
                     size_f: '-',
-                    type: 'item',
+                    type: itemInView ? itemInView.type : 'item',
                     mtime_f: 'Just now',
                     isMoving: clipboardAction === 'cut',
                     isCopying: clipboardAction === 'copy'
@@ -578,17 +581,17 @@ async function pasteItems() {
             uiAlert(`Paste failed: ${result.error}`);
         } else {
             const actionText = clipboardAction === 'cut' ? 'moved' : 'copied';
-            showSnackbar(`${count} files have been ${actionText} from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
             if (clipboardAction === 'cut') {
                 clipboardItems = [];
                 clipboardSourceDir = "";
             }
-            fetchExplorer(currentDir, currentSearch, currentPage);
+            await fetchExplorer(currentDir, currentSearch, currentPage);
+            showSnackbar(`${count} files have been ${actionText} from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
         }
     } catch(e) { 
         transferSnackbar.close();
         uiAlert("An error occurred during the paste operation."); 
-        fetchExplorer(currentDir, currentSearch, currentPage);
+        await fetchExplorer(currentDir, currentSearch, currentPage);
     }
 }
 
@@ -873,23 +876,21 @@ function closeModal(id) {
 
 function deleteItem(path, name) { 
     uiConfirm(`Delete "${name}"?`, async () => { 
-        // Optimistic UI: Remove from list immediately
-        const index = currentItems.findIndex(i => i.path === path);
-        if (index !== -1) {
-            currentItems.splice(index, 1);
-            totalItems--;
+        // Optimistic UI: Mark as deleting
+        const item = currentItems.find(i => i.path === path);
+        if (item) {
+            item.isDeleting = true;
             renderExplorer();
         }
         
         try {
             const res = await fetch(`?delete=${encodeURIComponent(path)}&ajax=1`);
             if (!res.ok) throw new Error("Delete failed");
+            await fetchExplorer(currentDir, currentSearch, currentPage, false);
             showSnackbar(`"${name}" deleted successfully.`);
-            // Refresh stats and actual list in background
-            fetchExplorer(currentDir, currentSearch, currentPage, false);
         } catch (e) {
             uiAlert(`Failed to delete "${name}".`);
-            fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
+            await fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
         }
     }); 
 }
@@ -920,6 +921,8 @@ function updateBulkBtn() {
         document.getElementById('m-dropdown-bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
         document.getElementById('m-dropdown-bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
         document.getElementById('m-dropdown-bulkZipBtn').innerHTML = `📦 ZIP (${checkedCount})`;
+
+        document.getElementById('contextMenubulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
     } else {
         bulkActions.style.display = 'none';
     }
@@ -1232,29 +1235,32 @@ async function submitNewFolder() {
         const response = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
         const res = await response.json();
         if (res.success) { 
+            await fetchExplorer(currentDir, currentSearch, currentPage, false); 
             showSnackbar(`Folder "${n}" created.`);
-            fetchExplorer(currentDir, currentSearch, currentPage, false); 
         } else {
             uiAlert("Folder already exists or invalid name.");
-            fetchExplorer(currentDir, currentSearch, currentPage);
+            await fetchExplorer(currentDir, currentSearch, currentPage);
         }
     } catch(e) { 
         uiAlert("Error creating folder."); 
-        fetchExplorer(currentDir, currentSearch, currentPage);
+        await fetchExplorer(currentDir, currentSearch, currentPage);
     }
 }
 function handleSearchKeyUp(e) { const storageBtn = document.getElementById('storageBtn'); const myFilesBtn = document.getElementById('myFilesBtn'); if(e.key === 'Enter') {fetchExplorer(currentDir, e.target.value.trim(), 1); storageBtn.style.background = ""; myFilesBtn.style.background = "";} }
 function clearSearch() { const myFilesBtn = document.getElementById('myFilesBtn'); myFilesBtn.style.background = "#eee"; document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
-function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; fetchExplorer(currentDir, currentSearch, currentPage); showSnackbar("Upload cancelled."); }
+async function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; await fetchExplorer(currentDir, currentSearch, currentPage); showSnackbar("Upload cancelled."); }
 
 function submitBulkDelete() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
     if (!checked.length) return;
     
     uiConfirm(`Delete ${checked.length} items?`, async () => {
-        // Optimistic UI: Remove from list immediately
-        currentItems = currentItems.filter(i => !checked.includes(i.path));
-        totalItems -= checked.length;
+        // Optimistic UI: Mark as deleting
+        currentItems.forEach(item => {
+            if (checked.includes(item.path)) {
+                item.isDeleting = true;
+            }
+        });
         renderExplorer();
         
         const fd = new FormData(); 
@@ -1265,11 +1271,11 @@ function submitBulkDelete() {
             const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
             const resJson = await res.json();
             if (!res.ok) throw new Error("Bulk delete failed");
+            await fetchExplorer(currentDir, currentSearch, currentPage, false);
             showSnackbar(`${checked.length} items deleted.`);
-            fetchExplorer(currentDir, currentSearch, currentPage, false);
         } catch (e) {
             uiAlert("Failed to delete some items.");
-            fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
+            await fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
         }
     });
 }
@@ -1294,6 +1300,7 @@ function renamePrompt() {
             const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
             const result = await res.json();
             if (result.success) {
+                await fetchExplorer(currentDir, currentSearch, currentPage);
                 showSnackbar(`Renamed to "${n}"`);
             } else {
                 showSnackbar(`Rename failed: ${result.error || 'Unknown error'}`, { duration: 5000 });
@@ -1301,7 +1308,7 @@ function renamePrompt() {
         } catch (e) {
             showSnackbar("Rename error occurred.", { duration: 5000 });
         }
-        closeModal('promptModal'); fetchExplorer(currentDir, currentSearch, currentPage);
+        closeModal('promptModal');
     };
     openModal('promptModal');
 }
@@ -1364,10 +1371,11 @@ function movePrompt() {
             if(result.error) {
                 uiAlert(`Move failed: ${result.error}`);
             } else {
+                await fetchExplorer(currentDir, currentSearch, currentPage);
                 showSnackbar(`Moved ${movingItems.length} item(s) successfully.`);
             }
         } catch(e) { uiAlert("An error occurred during the move operation."); }
-        finally { closeModal('promptModal'); fetchExplorer(currentDir, currentSearch, currentPage); }
+        finally { closeModal('promptModal'); }
     };
     openModal('promptModal');
 }

@@ -835,7 +835,8 @@ if ($isAjax) {
     <div id="contextMenu" class="context-menu">
         <div onclick="sharePrompt()">🔗 Share link</div>
         <div onclick="renamePrompt()">✏️ Rename</div>
-        <div onclick="movePrompt()">📦 Move this file</div>
+        <div onclick="movePrompt()">➡️ Move this file</div>
+        <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</div>
     </div>
     <?php endif; ?>
 
