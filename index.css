@@ -750,6 +750,78 @@ input[type="checkbox"] {
     input[type="checkbox"] { display: block; margin: auto;}
 }
 
+/* PDF Slideshow */
+.slideshow-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: #000;
+    z-index: 2000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+.slideshow-controls {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(20, 20, 20, 0.8);
+    backdrop-filter: blur(10px);
+    padding: 12px 24px;
+    border-radius: 40px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    z-index: 2001;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    pointer-events: none;
+}
+
+.slideshow-controls.show-controls {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.slideshow-btn {
+    background: transparent;
+    border: none;
+    color: white;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 500;
+    padding: 8px 12px;
+    border-radius: 8px;
+    transition: 0.2s;
+}
+
+.slideshow-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.slideshow-canvas-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.slideshow-canvas-container canvas {
+    max-width: 95vw;
+    max-height: 90vh;
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+    background: white;
+}
+
 @media (max-width: 480px) {
     .brand { margin-bottom: 16px; }
     .table-header, .table-row { grid-template-columns: 56px 1fr 80px; } /* Name, Actions */

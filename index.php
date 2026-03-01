@@ -12,7 +12,7 @@ error_reporting(E_ALL);
 @set_time_limit(0); 
 @ini_set('memory_limit', '1024M');
 
-$baseDir = __DIR__ . DIRECTORY_SEPARATOR . 'files';
+$baseDir = __DIR__ . DIRECTORY_SEPARATOR . '.files';
 if (!file_exists($baseDir)) mkdir($baseDir, 0777, true);
 $realBase = realpath($baseDir); // This is the absolute root for the admin
 $storageLimit = 100 * 1024 * 1024 * 1024; // 100 GB
@@ -117,7 +117,7 @@ if (!$is_shared_view) {
 ?>
 <?php
 // ================= CONFIG & LOGIC (CONTINUED) =================
-$adminRealBase = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'files'); 
+$adminRealBase = realpath(__DIR__ . DIRECTORY_SEPARATOR . '.files'); 
 
 // --- PERFORMANCE OPTIMIZATION ---
 $cacheFile = __DIR__ . '/.explorer_cache';
@@ -819,10 +819,21 @@ if ($isAjax) {
         </div>
     </main>
     
+    <!-- PDF Slideshow Container -->
+    <div id="pdfSlideshowContainer" class="slideshow-overlay" style="display: none;">
+        <div class="slideshow-controls">
+            <button class="slideshow-btn" onclick="prevPdfPage()">❮ Prev</button>
+            <span id="slideshowPageNum" style="color: white; font-weight: 500;">Page 1 / 1</span>
+            <button class="slideshow-btn" onclick="nextPdfPage()">Next ❯</button>
+            <button class="slideshow-btn" onclick="exitPdfSlideshow()" style="background: rgba(255, 67, 53, 0.2); color: #ff8a80;">Exit</button>
+        </div>
+        <div id="slideshowCanvasContainer" class="slideshow-canvas-container"></div>
+    </div>
+    
     <div id="snackbarContainer" class="snackbar-container"></div>
     
     <!-- MODALS -->
-    <div id="mediaModal" class="modal"><div class="modal-content"><div class="media-header"><div style="display: flex; flex-direction: column; overflow: hidden; gap: 4px;"><span id="mediaTitle">Viewer</span><span id="mediaSubtitle">Preview</span></div><span onclick="closeModal('mediaModal')" style="cursor:pointer; font-size:32px; line-height: 1;">&times;</span></div><div id="mediaBody"><button class="nav-btn nav-prev" onclick="navigateMedia(-1)">❮</button><div id="mediaContainer"></div><button class="nav-btn nav-next" onclick="navigateMedia(1)">❯</button></div></div></div>
+    <div id="mediaModal" class="modal"><div class="modal-content"><div class="media-header"><div style="display: flex; flex-direction: column; overflow: hidden; gap: 4px;"><span id="mediaTitle">Viewer</span><span id="mediaSubtitle">Preview</span></div><div style="display: flex; align-items: center; gap: 16px;"><button id="pdfSlideshowBtn" class="btn btn-tonal-primary" style="display: none; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem;" onclick="startPdfSlideshow()">📽️ Slideshow</button><span onclick="closeModal('mediaModal')" style="cursor:pointer; font-size:32px; line-height: 1;">&times;</span></div></div><div id="mediaBody"><button class="nav-btn nav-prev" onclick="navigateMedia(-1)">❮</button><div id="mediaContainer"></div><button class="nav-btn nav-next" onclick="navigateMedia(1)">❯</button></div></div></div>
     
     <?php if (!$is_shared_view): ?>
     <div id="folderModal" class="modal"><div class="modal-content"><div class="modal-header">New Folder</div><div class="modal-body"><input type="text" id="newFolderName" class="m3-input" placeholder="Folder Name" autofocus></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('folderModal')">Cancel</button><button class="btn btn-primary" onclick="submitNewFolder()">Create</button></div></div></div>
@@ -841,7 +852,7 @@ if ($isAjax) {
     </div>
     <?php endif; ?>
 
-    <script src="index.js?v=<?= @filemtime('index.js') ?: time() ?>"></script>
+    <script src="index.js"></script>
     <script>
     // Initialize the JS with data from PHP
     isSharedView = <?= $is_shared_view ? 'true' : 'false' ?>;

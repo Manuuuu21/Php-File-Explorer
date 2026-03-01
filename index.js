@@ -23,6 +23,10 @@ let selectedName = null;
 let currentXhr = null;
 let mediaItems = [];
 let currentMediaIndex = -1;
+let currentPdfDoc = null;
+let currentPdfPage = 1;
+let isSlideshowActive = false;
+let slideshowTimer = null;
 
 let storageLimit = `100 GB`; // This is only for txt display. Make sure it is sync in the php code storagelimit.
 
@@ -224,6 +228,7 @@ function renderStorageFileList(files) {
 // --- GLOBAL KEYBOARD EVENTS ---
 document.addEventListener('keydown', (e) => {
     if (document.getElementById('mediaModal')?.classList.contains('active')) {
+        if (isSlideshowActive) return; // Don't navigate files if slideshow is active
         if (e.key === 'ArrowLeft') navigateMedia(-1);
         if (e.key === 'ArrowRight') navigateMedia(1);
         if (e.key === 'Escape') closeModal('mediaModal');
@@ -893,6 +898,7 @@ function closeModal(id) {
             const media = container.querySelector('audio, video');
             if (media) media.pause();
             container.innerHTML = '';
+            currentPdfDoc = null;
         }
     }, 300); 
 }
@@ -988,6 +994,9 @@ function loadMedia() {
         url = `?share=${shareToken}&download=${encodeURIComponent(item.path)}&inline=1&t=${Date.now()}`;
     }
     
+    const slideshowBtn = document.getElementById('pdfSlideshowBtn');
+    if (slideshowBtn) slideshowBtn.style.display = (ext === 'pdf') ? 'inline-block' : 'none';
+
     container.style.opacity = '0';
     setTimeout(async () => {
         if (['mp4','webm','ogg'].includes(ext)) {
@@ -1198,11 +1207,11 @@ async function renderPdf(url) {
     const container = document.getElementById('pdfViewer');
     try {
         const loadingTask = pdfjsLib.getDocument(url);
-        const pdf = await loadingTask.promise;
+        currentPdfDoc = await loadingTask.promise;
         container.innerHTML = ''; // Clear loading message
         
-        for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-            const page = await pdf.getPage(pageNum);
+        for (let pageNum = 1; pageNum <= currentPdfDoc.numPages; pageNum++) {
+            const page = await currentPdfDoc.getPage(pageNum);
             const viewport = page.getViewport({ scale: 1.5 });
             
             const canvas = document.createElement('canvas');
@@ -1224,6 +1233,167 @@ async function renderPdf(url) {
         container.innerHTML = `<div style="color: #ff8a80; padding: 20px;">Error loading PDF: ${error.message}</div>`;
     }
 }
+
+async function startPdfSlideshow() {
+    if (!currentPdfDoc) return;
+    isSlideshowActive = true;
+    currentPdfPage = 1;
+    
+    const container = document.getElementById('pdfSlideshowContainer');
+    container.style.display = 'flex';
+    
+    // Request Fullscreen
+    if (container.requestFullscreen) {
+        container.requestFullscreen();
+    } else if (container.webkitRequestFullscreen) {
+        container.webkitRequestFullscreen();
+    } else if (container.msRequestFullscreen) {
+        container.msRequestFullscreen();
+    }
+    
+    renderSlideshowPage();
+    
+    // Trigger controls to show initially
+    const controls = document.querySelector('.slideshow-controls');
+    if (controls) {
+        controls.classList.add('show-controls');
+        if (slideshowTimer) clearTimeout(slideshowTimer);
+        slideshowTimer = setTimeout(() => {
+            if (isSlideshowActive) controls.classList.remove('show-controls');
+        }, 3000);
+    }
+}
+
+async function renderSlideshowPage() {
+    if (!currentPdfDoc || !isSlideshowActive) return;
+    
+    const canvasContainer = document.getElementById('slideshowCanvasContainer');
+    const pageIndicator = document.getElementById('slideshowPageNum');
+    
+    canvasContainer.innerHTML = '<div style="color: white;">Loading page...</div>';
+    pageIndicator.innerText = `Page ${currentPdfPage} / ${currentPdfDoc.numPages}`;
+    
+    try {
+        const page = await currentPdfDoc.getPage(currentPdfPage);
+        
+        // Calculate scale to exactly fit screen while maintaining aspect ratio
+        const unscaledViewport = page.getViewport({ scale: 1.0 });
+        const scale = Math.min(window.innerWidth / unscaledViewport.width, window.innerHeight / unscaledViewport.height);
+        const viewport = page.getViewport({ scale: scale });
+        
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        
+        // Use exactly the calculated viewport size which matches the screen's inner dimensions at one edge
+        canvas.height = viewport.height;
+        canvas.width = viewport.width;
+        
+        const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+        };
+        
+        canvasContainer.innerHTML = '';
+        canvasContainer.appendChild(canvas);
+        await page.render(renderContext).promise;
+    } catch (e) {
+        console.error(e);
+        canvasContainer.innerHTML = '<div style="color: #ff8a80;">Error loading page</div>';
+    }
+}
+
+function nextPdfPage() {
+    if (!currentPdfDoc || currentPdfPage >= currentPdfDoc.numPages) return;
+    currentPdfPage++;
+    renderSlideshowPage();
+}
+
+function prevPdfPage() {
+    if (currentPdfPage <= 1) return;
+    currentPdfPage--;
+    renderSlideshowPage();
+}
+
+function exitPdfSlideshow() {
+    isSlideshowActive = false;
+    document.getElementById('pdfSlideshowContainer').style.display = 'none';
+    document.body.style.cursor = 'default';
+    if (slideshowTimer) clearTimeout(slideshowTimer);
+    
+    if (document.exitFullscreen) {
+        if (document.fullscreenElement) document.exitFullscreen();
+    } else if (document.webkitExitFullscreen) {
+        if (document.webkitFullscreenElement) document.webkitExitFullscreen();
+    }
+}
+
+// Handle Fullscreen Change (e.g. Esc key)
+document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && isSlideshowActive) {
+        exitPdfSlideshow();
+    }
+});
+document.addEventListener('webkitfullscreenchange', () => {
+    if (!document.webkitFullscreenElement && isSlideshowActive) {
+        exitPdfSlideshow();
+    }
+});
+
+// Keyboard navigation for slideshow
+document.addEventListener('keydown', (e) => {
+    if (!isSlideshowActive) return;
+    
+    if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.stopPropagation();
+        nextPdfPage();
+    } else if (e.key === 'ArrowLeft') {
+        e.stopPropagation();
+        prevPdfPage();
+    } else if (e.key === 'Escape') {
+        e.stopPropagation();
+        exitPdfSlideshow();
+    }
+});
+
+// Click to navigate in slideshow
+document.getElementById('pdfSlideshowContainer').addEventListener('click', (e) => {
+    if (!isSlideshowActive) return;
+    // If clicking on a button, don't trigger page change
+    if (e.target.closest('.slideshow-btn')) return;
+    
+    const width = window.innerWidth;
+    if (e.clientX > width / 2) {
+        nextPdfPage();
+    } else {
+        prevPdfPage();
+    }
+});
+
+// Auto-hide controls on mouse move
+document.getElementById('pdfSlideshowContainer').addEventListener('mousemove', () => {
+    if (!isSlideshowActive) return;
+    
+    const controls = document.querySelector('.slideshow-controls');
+    if (controls) {
+        controls.classList.add('show-controls');
+        document.body.style.cursor = 'default';
+        
+        if (slideshowTimer) clearTimeout(slideshowTimer);
+        slideshowTimer = setTimeout(() => {
+            if (isSlideshowActive) {
+                controls.classList.remove('show-controls');
+                document.body.style.cursor = 'none';
+            }
+        }, 3000);
+    }
+});
+
+// Handle window resize for slideshow
+window.addEventListener('resize', () => {
+    if (isSlideshowActive) {
+        renderSlideshowPage();
+    }
+});
 
 function navigateMedia(d) { if (mediaItems.length <= 1) return; currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length; loadMedia(); }
 function uiConfirm(msg, ok) { document.getElementById('confirmText').innerText = msg; document.getElementById('confirmOkBtn').onclick = () => { ok(); closeModal('confirmModal'); }; openModal('confirmModal'); }
