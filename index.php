@@ -12,7 +12,7 @@ error_reporting(E_ALL);
 @set_time_limit(0); 
 @ini_set('memory_limit', '1024M');
 
-$baseDir = __DIR__ . DIRECTORY_SEPARATOR . '.files';
+$baseDir = __DIR__ . DIRECTORY_SEPARATOR . 'files';
 if (!file_exists($baseDir)) mkdir($baseDir, 0777, true);
 $realBase = realpath($baseDir); // This is the absolute root for the admin
 $storageLimit = 100 * 1024 * 1024 * 1024; // 100 GB
@@ -117,7 +117,7 @@ if (!$is_shared_view) {
 ?>
 <?php
 // ================= CONFIG & LOGIC (CONTINUED) =================
-$adminRealBase = realpath(__DIR__ . DIRECTORY_SEPARATOR . '.files'); 
+$adminRealBase = realpath(__DIR__ . DIRECTORY_SEPARATOR . 'files'); 
 
 // --- PERFORMANCE OPTIMIZATION ---
 $cacheFile = __DIR__ . '/.explorer_cache';
@@ -852,7 +852,7 @@ if ($isAjax) {
     </div>
     <?php endif; ?>
 
-    <script src="index.js"></script>
+    <script src="index.js?v=<?= @filemtime('index.js') ?: time() ?>"></script>
     <script>
     // Initialize the JS with data from PHP
     isSharedView = <?= $is_shared_view ? 'true' : 'false' ?>;

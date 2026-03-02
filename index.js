@@ -228,7 +228,6 @@ function renderStorageFileList(files) {
 // --- GLOBAL KEYBOARD EVENTS ---
 document.addEventListener('keydown', (e) => {
     if (document.getElementById('mediaModal')?.classList.contains('active')) {
-        if (isSlideshowActive) return; // Don't navigate files if slideshow is active
         if (e.key === 'ArrowLeft') navigateMedia(-1);
         if (e.key === 'ArrowRight') navigateMedia(1);
         if (e.key === 'Escape') closeModal('mediaModal');
@@ -1344,13 +1343,10 @@ document.addEventListener('keydown', (e) => {
     if (!isSlideshowActive) return;
     
     if (e.key === 'ArrowRight' || e.key === ' ') {
-        e.stopPropagation();
         nextPdfPage();
     } else if (e.key === 'ArrowLeft') {
-        e.stopPropagation();
         prevPdfPage();
     } else if (e.key === 'Escape') {
-        e.stopPropagation();
         exitPdfSlideshow();
     }
 });
