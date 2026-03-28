@@ -216,7 +216,7 @@ function renderStorageFileList(files) {
         item.style.alignItems = 'center';
         item.innerHTML = `
             <div class="storage-file-name" title="${escapeHtml(file.path)}" style="display: flex; align-items: center; gap: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                <span style="color: #666; font-size: 1.2rem;">📄</span>
+                <span style="color: #666; font-size: 1.2rem;">${getFileIcon(file)}</span>
                 ${escapeHtml(file.name)}
             </div>
             <div class="storage-file-size" style="text-align: right; color: #666; font-size: 0.9rem;">${file.size_f}</div>
@@ -1792,7 +1792,7 @@ async function renderMoveModal() {
                      onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
                      ${isDir ? `ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')"` : ''}>
                     <div class="folder-icon">${getFileIcon(f)}</div>
-                    <div style="font-weight: 500;">${escapeHtml(f.name)}</div>
+                    <div style="font-weight: 500; ${isDir ? '' : 'color: silver;'}">${escapeHtml(f.name)}</div>
                 </div>
             `;
         });
