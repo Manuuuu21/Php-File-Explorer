@@ -311,6 +311,15 @@ document.addEventListener('click', function(event) {
     });
 });
 
+function getFileIcon(item) {
+    if (item.isDir) return '📂';
+    const name = item.name.toLowerCase();
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.bmp')) return '🖼️';
+    if (name.endsWith('.mp4') || name.endsWith('.avi') || name.endsWith('.mov') || name.endsWith('.mkv')) return '📹';
+    if (name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.ogg')) return '🔊';
+    return '📄';
+}
+
 function renderExplorer(loading = false) {
     const list = document.getElementById('fileListContent');
     const bc = document.getElementById('breadcrumbTrail');
@@ -429,7 +438,7 @@ function renderExplorer(loading = false) {
              onclick="${isUploading ? '' : `handleRowClick(event, '${escapeJs(f.path)}', ${f.isDir ? `'dir'` : `'file'`})`}">
             ${checkbox}
             <div class="col-name">
-                <span class="icon">${isUploading ? '⏳' : (f.isDir ? '📁' : '📄')}</span>
+                <span class="icon">${isUploading ? '⏳' : getFileIcon(f)}</span>
                 <div style="display: flex; flex-direction: column; min-width: 0;">
                     ${nameContent}
                     ${currentSearch ? `<span style="font-size:0.6rem; color:#888;">in ${escapeHtml(f.path.substring(0, f.path.lastIndexOf('/')) || 'Root')}</span>` : ''}
@@ -1747,7 +1756,7 @@ async function renderMoveModal() {
     try {
         const response = await fetch(`?dir=${encodeURIComponent(moveModalDir)}&ajax=1`);
         const data = await response.json();
-        const folders = data.items.filter(item => item.isDir);
+        const items = data.items;
         
         let html = "";
         
@@ -1774,14 +1783,15 @@ async function renderMoveModal() {
             `;
         }
         
-        folders.forEach(f => {
+        items.forEach(f => {
             const isSelected = moveModalSelectedPath === f.path;
+            const isDir = f.isDir;
             html += `
                 <div class="move-modal-item ${isSelected ? 'selected' : ''}" 
                      data-path="${escapeHtml(f.path)}"
                      onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
-                     ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')">
-                    <div class="folder-icon">📂</div>
+                     ${isDir ? `ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')"` : ''}>
+                    <div class="folder-icon">${getFileIcon(f)}</div>
                     <div style="font-weight: 500;">${escapeHtml(f.name)}</div>
                 </div>
             `;
