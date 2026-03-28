@@ -8,6 +8,7 @@ let perPage = 50;
 let sortKey = 'name';
 let sortOrder = 1;
 let isSharedView = false;
+let allowUpload = false;
 let isSingleFileShare = false;
 let sharedFolderName = "";
 let clipboardItems = [];
@@ -228,6 +229,7 @@ function renderStorageFileList(files) {
 // --- GLOBAL KEYBOARD EVENTS ---
 document.addEventListener('keydown', (e) => {
     if (document.getElementById('mediaModal')?.classList.contains('active')) {
+        if (isSlideshowActive) return; // Don't navigate files if slideshow is active
         if (e.key === 'ArrowLeft') navigateMedia(-1);
         if (e.key === 'ArrowRight') navigateMedia(1);
         if (e.key === 'Escape') closeModal('mediaModal');
@@ -239,7 +241,7 @@ document.addEventListener('keydown', (e) => {
     
     // CTRL+A (Select All)
     if (e.ctrlKey && e.key.toLowerCase() === 'a') {
-        if (isSharedView) return;
+        if (isSharedView || document.querySelector('.modal.active')) return;
         if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
         e.preventDefault();
         const selectAllCb = document.getElementById('selectAll');
@@ -251,7 +253,7 @@ document.addEventListener('keydown', (e) => {
     
     // CTRL+C (Copy)
     if (e.ctrlKey && e.key.toLowerCase() === 'c') {
-        if (isSharedView) return;
+        if (isSharedView || document.querySelector('.modal.active')) return;
         const selected = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
         if (selected.length > 0) {
             clipboardItems = selected;
@@ -270,7 +272,7 @@ document.addEventListener('keydown', (e) => {
 
     // CTRL+X (Cut)
     if (e.ctrlKey && e.key.toLowerCase() === 'x') {
-        if (isSharedView) return;
+        if (isSharedView || document.querySelector('.modal.active')) return;
         const selected = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
         if (selected.length > 0) {
             clipboardItems = selected;
@@ -289,7 +291,7 @@ document.addEventListener('keydown', (e) => {
 
     // CTRL+V (Paste)
     if (e.ctrlKey && e.key.toLowerCase() === 'v') {
-        if (isSharedView || clipboardItems.length === 0) return;
+        if (isSharedView || clipboardItems.length === 0 || document.querySelector('.modal.active')) return;
         pasteItems();
     }
 });
@@ -407,8 +409,8 @@ function renderExplorer(loading = false) {
         
         let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
         let contextMenu = (isSharedView || isUploading) ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
-        let checkbox = isSharedView ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" ${isActive ? 'checked' : ''} ${isUploading ? 'disabled' : ''} onclick="event.stopPropagation(); updateBulkBtn()"></div>`;
-        let actions = (isSharedView || isUploading) ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete">🗑️</span>`;
+        let checkbox = (isSharedView && !allowUpload) ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" ${isActive ? 'checked' : ''} ${isUploading ? 'disabled' : ''} onclick="event.stopPropagation(); updateBulkBtn()"></div>`;
+        let actions = (isSharedView && !allowUpload) || isUploading ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete">🗑️</span>`;
 
         let rowStyle = isUploading ? 'opacity: 0.6; pointer-events: none;' : '';
         let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading... ${f.progress || 0}%</span>` : 
@@ -442,7 +444,7 @@ function renderExplorer(loading = false) {
         </div>`;
     });
     list.innerHTML = html || `<div style="padding:30px; text-align:center; color:#999; font-size:0.9rem;">${currentSearch ? 'No matches found.' : 'Folder empty.'}</div>`;
-    if (!isSharedView) {
+    if (!isSharedView || allowUpload) {
         document.getElementById('selectAll').checked = false;
         updateBulkBtn();
     }
@@ -616,18 +618,21 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
         currentDir = data.dir; 
         currentSearch = data.search; 
         currentItems = data.items;
+        sortItemsLocally();
         currentPage = data.page;
         totalItems = data.totalCount;
         perPage = data.perPage;
 
         const myFilesBtn = document.getElementById('myFilesBtn');
-        myFilesBtn.style.background = "#eee";
+        if (myFilesBtn) myFilesBtn.style.background = "#eee";
 
         renderExplorer();
         if (!isSharedView) {
             updateStats(data.stats);
-            document.getElementById('clearSearchBtn').style.display = currentSearch ? 'inline' : 'none';
-            document.getElementById('searchInput').value = currentSearch;
+            const clearSearchBtn = document.getElementById('clearSearchBtn');
+            const searchInput = document.getElementById('searchInput');
+            if (clearSearchBtn) clearSearchBtn.style.display = currentSearch ? 'inline' : 'none';
+            if (searchInput) searchInput.value = currentSearch;
         }
 
         if (updateHistory) {
@@ -676,7 +681,8 @@ async function processUploadBatch(batch) {
     const speedLabel = document.getElementById('uploadSpeed');
     const sizeLabel = document.getElementById('uploadSizeBadge');
 
-    const isStorageView = document.getElementById('storageView').style.display === 'flex';
+    const storageView = document.getElementById('storageView');
+    const isStorageView = storageView && storageView.style.display === 'flex';
     
     // If in storage view, switch to Root immediately for better responsiveness
     if (isStorageView) {
@@ -776,13 +782,18 @@ async function processUploadBatch(batch) {
             };
             xhr.onreadystatechange = () => { if (xhr.readyState === 4) { if (xhr.status === 200) resolve(); else reject(); } };
             const uploadDir = isStorageView ? "" : currentDir;
-            xhr.open('POST', `${window.location.pathname}?dir=${encodeURIComponent(uploadDir)}&action=upload&ajax=1`, true);
+            let uploadUrl = `${window.location.pathname}?dir=${encodeURIComponent(uploadDir)}&action=upload&ajax=1`;
+            if (isSharedView) {
+                const shareToken = new URLSearchParams(window.location.search).get('share');
+                uploadUrl = `${window.location.pathname}?share=${shareToken}&dir=${encodeURIComponent(uploadDir)}&action=upload&ajax=1`;
+            }
+            xhr.open('POST', uploadUrl, true);
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
             xhr.send(formData);
         });
         try { 
             await uploadPromise; 
-            // Mark as done uploading but wait for full refresh
+            // Individual item upload finished, but we keep isUploading=true until the whole batch is done
         } catch (e) { 
             if (currentXhr) break; 
         }
@@ -790,12 +801,23 @@ async function processUploadBatch(batch) {
     card.style.display = 'none';
     currentXhr = null;
 
-    if (isStorageView) {
-        await fetchExplorer('', '', 1);
-    } else {
-        await fetchExplorer(currentDir, currentSearch, currentPage);
-    }
+    // Cleanup uploading status
+    currentItems.forEach(item => {
+        if (item.isUploading) {
+            item.isUploading = false;
+            item.progress = 100;
+        }
+    });
+    sortItemsLocally();
+    renderExplorer();
+
     showSnackbar(`${batch.length} file(s) uploaded successfully.`);
+
+    if (isStorageView) {
+        fetchExplorer('', '', 1);
+    } else {
+        fetchExplorer(currentDir, currentSearch, currentPage);
+    }
 }
 
 function setupDragAndDrop() {
@@ -806,7 +828,8 @@ function setupDragAndDrop() {
             e.preventDefault();
             showStorageView();
             storageBtn.style.background = "#eee";
-            myFilesBtn.style.background = "";
+            const myFilesBtn = document.getElementById('myFilesBtn');
+            if (myFilesBtn) myFilesBtn.style.background = "";
             
             const url = new URL(window.location.pathname, window.location.origin);
             url.searchParams.set('mystorage', 'quota');
@@ -819,7 +842,7 @@ function setupDragAndDrop() {
     if (myFilesBtn) {
         myFilesBtn.addEventListener('click', (e) => {
             myFilesBtn.style.background = "#eee";
-            storageBtn.style.background = "";
+            if (storageBtn) storageBtn.style.background = "";
             e.preventDefault();
             hideStorageView();
             toggleSidebar(false);
@@ -912,7 +935,12 @@ function deleteItem(path, name) {
         }
         
         try {
-            const res = await fetch(`?delete=${encodeURIComponent(path)}&ajax=1`);
+            let url = `?delete=${encodeURIComponent(path)}&ajax=1`;
+            if (isSharedView) {
+                const shareToken = new URLSearchParams(window.location.search).get('share');
+                url = `?share=${shareToken}&delete=${encodeURIComponent(path)}&ajax=1`;
+            }
+            const res = await fetch(url);
             if (!res.ok) throw new Error("Delete failed");
             await fetchExplorer(currentDir, currentSearch, currentPage, false);
             showSnackbar(`"${name}" deleted successfully.`);
@@ -922,6 +950,30 @@ function deleteItem(path, name) {
         }
     }); 
 }
+function sortItemsLocally() {
+    if (!currentItems || currentItems.length === 0) return;
+    
+    currentItems.sort((a, b) => {
+        // Special handling for directories to always be on top if sorting by name
+        if (sortKey === 'name') {
+            if (a.isDir && !b.isDir) return -1 * sortOrder;
+            if (!a.isDir && b.isDir) return 1 * sortOrder;
+        }
+
+        let valA = a[sortKey];
+        let valB = b[sortKey];
+
+        // Use localeCompare for proper string sorting (Numbers, Aa-Zz)
+        if (typeof valA === 'string' && typeof valB === 'string') {
+            return valA.localeCompare(valB, undefined, { numeric: true, sensitivity: 'base' }) * sortOrder;
+        }
+
+        if (valA < valB) return -1 * sortOrder;
+        if (valA > valB) return 1 * sortOrder;
+        return 0;
+    });
+}
+
 function changeSort(key) { if (sortKey === key) sortOrder *= -1; else { sortKey = key; sortOrder = 1; } fetchExplorer(currentDir, currentSearch, 1); }
 function toggleSelectAll(m) { document.getElementsByName('selected_items[]').forEach(cb => { cb.checked = m.checked; }); updateBulkBtn(); }
 
@@ -940,19 +992,37 @@ function updateBulkBtn() {
         }
     });
     const bulkActions = document.getElementById('bulkActions');
+    if (!bulkActions) return;
+
     if (checkedCount > 0) {
         bulkActions.style.display = 'flex';
-        document.getElementById('bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
-        document.getElementById('bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
-        document.getElementById('bulkZipBtn').innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        
+        const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+        if (bulkDeleteBtn) bulkDeleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+        
+        const bulkMoveBtn = document.getElementById('bulkMoveBtn');
+        if (bulkMoveBtn) bulkMoveBtn.innerHTML = `➡️ Move (${checkedCount})`;
+        
+        const bulkZipBtn = document.getElementById('bulkZipBtn');
+        if (bulkZipBtn) bulkZipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
 
-        document.getElementById('m-dropdown-bulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
-        document.getElementById('m-dropdown-bulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
-        document.getElementById('m-dropdown-bulkZipBtn').innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        const mBulkDeleteBtn = document.getElementById('m-dropdown-bulkDeleteBtn');
+        if (mBulkDeleteBtn) mBulkDeleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+        
+        const mBulkMoveBtn = document.getElementById('m-dropdown-bulkMoveBtn');
+        if (mBulkMoveBtn) mBulkMoveBtn.innerHTML = `➡️ Move (${checkedCount})`;
+        
+        const mBulkZipBtn = document.getElementById('m-dropdown-bulkZipBtn');
+        if (mBulkZipBtn) mBulkZipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
 
-        document.getElementById('contextMenubulkMoveBtn').innerHTML = `➡️ Move (${checkedCount})`;
-        document.getElementById('contextMenubulkDeleteBtn').innerHTML = `🗑️ Delete (${checkedCount})`;
-        document.getElementById('contextMenubulkZipBtn').innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        const ctxBulkMoveBtn = document.getElementById('contextMenubulkMoveBtn');
+        if (ctxBulkMoveBtn) ctxBulkMoveBtn.innerHTML = `➡️ Move (${checkedCount})`;
+        
+        const ctxBulkDeleteBtn = document.getElementById('contextMenubulkDeleteBtn');
+        if (ctxBulkDeleteBtn) ctxBulkDeleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+        
+        const ctxBulkZipBtn = document.getElementById('contextMenubulkZipBtn');
+        if (ctxBulkZipBtn) ctxBulkZipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
     } else {
         bulkActions.style.display = 'none';
     }
@@ -1343,10 +1413,13 @@ document.addEventListener('keydown', (e) => {
     if (!isSlideshowActive) return;
     
     if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.stopPropagation();
         nextPdfPage();
     } else if (e.key === 'ArrowLeft') {
+        e.stopPropagation();
         prevPdfPage();
     } else if (e.key === 'Escape') {
+        e.stopPropagation();
         exitPdfSlideshow();
     }
 });
@@ -1392,8 +1465,26 @@ window.addEventListener('resize', () => {
 });
 
 function navigateMedia(d) { if (mediaItems.length <= 1) return; currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length; loadMedia(); }
-function uiConfirm(msg, ok) { document.getElementById('confirmText').innerText = msg; document.getElementById('confirmOkBtn').onclick = () => { ok(); closeModal('confirmModal'); }; openModal('confirmModal'); }
-function uiAlert(msg) { document.getElementById('alertText').innerText = msg; openModal('alertModal'); }
+function uiConfirm(msg, ok) { 
+    const text = document.getElementById('confirmText');
+    const btn = document.getElementById('confirmOkBtn');
+    if (text && btn) {
+        text.innerText = msg; 
+        btn.onclick = () => { ok(); closeModal('confirmModal'); }; 
+        openModal('confirmModal'); 
+    } else {
+        if (confirm(msg)) ok();
+    }
+}
+function uiAlert(msg) { 
+    const text = document.getElementById('alertText');
+    if (text) {
+        text.innerText = msg; 
+        openModal('alertModal'); 
+    } else {
+        alert(msg);
+    }
+}
 
 async function submitNewFolder() { 
     const n = document.getElementById('newFolderName').value.trim(); if (!n) return;
@@ -1423,7 +1514,12 @@ async function submitNewFolder() {
 
     const fd = new FormData(); fd.append('newfolder', n); 
     try {
-        const response = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+        let url = `?ajax=1&dir=${encodeURIComponent(currentDir)}`;
+        if (isSharedView) {
+            const shareToken = new URLSearchParams(window.location.search).get('share');
+            url = `?share=${shareToken}&ajax=1&dir=${encodeURIComponent(currentDir)}`;
+        }
+        const response = await fetch(url, {method:'POST', body:fd});
         const res = await response.json();
         if (res.success) { 
             await fetchExplorer(currentDir, currentSearch, currentPage, false); 
@@ -1437,8 +1533,8 @@ async function submitNewFolder() {
         await fetchExplorer(currentDir, currentSearch, currentPage);
     }
 }
-function handleSearchKeyUp(e) { const storageBtn = document.getElementById('storageBtn'); const myFilesBtn = document.getElementById('myFilesBtn'); if(e.key === 'Enter') {fetchExplorer(currentDir, e.target.value.trim(), 1); storageBtn.style.background = ""; myFilesBtn.style.background = "";} }
-function clearSearch() { const myFilesBtn = document.getElementById('myFilesBtn'); myFilesBtn.style.background = "#eee"; document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
+function handleSearchKeyUp(e) { const storageBtn = document.getElementById('storageBtn'); const myFilesBtn = document.getElementById('myFilesBtn'); if(e.key === 'Enter') {fetchExplorer(currentDir, e.target.value.trim(), 1); if (storageBtn) storageBtn.style.background = ""; if (myFilesBtn) myFilesBtn.style.background = "";} }
+function clearSearch() { const myFilesBtn = document.getElementById('myFilesBtn'); if (myFilesBtn) myFilesBtn.style.background = "#eee"; document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
 async function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; await fetchExplorer(currentDir, currentSearch, currentPage); showSnackbar("Upload cancelled."); }
 
 function submitBulkDelete() {
@@ -1459,7 +1555,12 @@ function submitBulkDelete() {
         checked.forEach(v => fd.append('selected_items[]', v));
         
         try {
-            const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+            let url = `?ajax=1&dir=${encodeURIComponent(currentDir)}`;
+            if (isSharedView) {
+                const shareToken = new URLSearchParams(window.location.search).get('share');
+                url = `?share=${shareToken}&ajax=1&dir=${encodeURIComponent(currentDir)}`;
+            }
+            const res = await fetch(url, {method:'POST', body:fd});
             const resJson = await res.json();
             if (!res.ok) throw new Error("Bulk delete failed");
             await fetchExplorer(currentDir, currentSearch, currentPage, false);
@@ -1474,40 +1575,67 @@ function submitBulkDelete() {
 function submitBulkZip() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
     if (!checked.length) return;
-    const form = document.createElement('form'); form.method = 'POST'; form.action = window.location.pathname;
+    
+    let action = window.location.pathname;
+    if (isSharedView) {
+        const shareToken = new URLSearchParams(window.location.search).get('share');
+        action += `?share=${shareToken}`;
+    }
+    
+    const form = document.createElement('form'); form.method = 'POST'; form.action = action;
     const zipI = document.createElement('input'); zipI.type = 'hidden'; zipI.name = 'bulk_zip'; zipI.value = '1'; form.appendChild(zipI);
     checked.forEach(v => { const i = document.createElement('input'); i.type = 'hidden'; i.name = 'selected_items[]'; i.value = v; form.appendChild(i); });
     document.body.appendChild(form); form.submit();
 }
 
 function renamePrompt() {
-    document.getElementById('promptTitle').innerText = "Rename"; 
-    document.getElementById('promptText').innerText = `New name for "${selectedName}":`; 
-    document.getElementById('promptInput').value = selectedName;
-    document.getElementById('promptOkBtn').onclick = async () => {
-        const n = document.getElementById('promptInput').value.trim(); if (!n) return;
-        const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', n);
-        try {
-            const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
-            const result = await res.json();
-            if (result.success) {
-                await fetchExplorer(currentDir, currentSearch, currentPage);
-                showSnackbar(`Renamed to "${n}"`);
-            } else {
-                showSnackbar(`Rename failed: ${result.error || 'Unknown error'}`, { duration: 5000 });
+    const title = document.getElementById('promptTitle');
+    const input = document.getElementById('promptInput');
+    const btn = document.getElementById('promptOkBtn');
+    const text = document.getElementById('promptText');
+    
+    if (title) title.innerText = "Rename"; 
+    if (text) text.innerText = `New name for "${selectedName}":`; 
+    if (input) input.value = selectedName;
+    
+    if (btn) {
+        btn.onclick = async () => {
+            const n = document.getElementById('promptInput').value.trim(); if (!n) return;
+            const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', n);
+            try {
+                const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
+                const result = await res.json();
+                if (result.success) {
+                    await fetchExplorer(currentDir, currentSearch, currentPage);
+                    showSnackbar(`Renamed to "${n}"`);
+                } else {
+                    showSnackbar(`Rename failed: ${result.error || 'Unknown error'}`, { duration: 5000 });
+                }
+            } catch (e) {
+                showSnackbar("Rename error occurred.", { duration: 5000 });
             }
-        } catch (e) {
-            showSnackbar("Rename error occurred.", { duration: 5000 });
-        }
-        closeModal('promptModal');
-    };
+            closeModal('promptModal');
+        };
+    }
     openModal('promptModal');
 }
 
 async function sharePrompt() {
+    const isDir = currentItems.find(i => i.path === selectedPath)?.isDir;
+    const uploadOption = document.getElementById('shareUploadOption');
+    const allowUploadSelect = document.getElementById('shareAllowUpload');
+    
+    if (isDir) {
+        uploadOption.style.display = 'flex';
+        allowUploadSelect.value = "0";
+    } else {
+        uploadOption.style.display = 'none';
+    }
+
     const fd = new FormData();
     fd.append('action', 'create_share');
     fd.append('path', selectedPath);
+    fd.append('allow_upload', '0');
 
     try {
         const res = await (await fetch('?ajax=1', {method: 'POST', body: fd})).json();
@@ -1523,50 +1651,169 @@ async function sharePrompt() {
     }
 }
 
+async function updateShareLink() {
+    const allowUpload = document.getElementById('shareAllowUpload').value;
+    const fd = new FormData();
+    fd.append('action', 'create_share');
+    fd.append('path', selectedPath);
+    fd.append('allow_upload', allowUpload);
+
+    try {
+        const res = await (await fetch('?ajax=1', {method: 'POST', body: fd})).json();
+        if (res.success && res.token) {
+            const shareUrl = `${window.location.origin}${window.location.pathname}?share=${res.token}`;
+            document.getElementById('shareLinkInput').value = shareUrl;
+            const button = document.getElementById('copyShareBtn');
+            if (button) button.textContent = 'Copy';
+        }
+    } catch (e) {
+        console.error("Error updating share link:", e);
+    }
+}
+
 function copyShareLink() {
     const input = document.getElementById('shareLinkInput');
     const button = document.getElementById('copyShareBtn');
-    input.select();
-    document.execCommand('copy');
-    button.textContent = 'Copied!';
+    if (input) {
+        input.select();
+        document.execCommand('copy');
+    }
+    if (button) {
+        button.textContent = 'Copied!';
+        setTimeout(() => { button.textContent = 'Copy'; }, 2000);
+    }
     showSnackbar("Link copied to clipboard.");
-    setTimeout(() => { button.textContent = 'Copy'; }, 2000);
 }
 
+let moveModalDir = "";
+let moveModalSelectedPath = "";
 
-function movePrompt() {
+async function movePrompt() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked'));
     const movingItems = [], hasSelection = checked.length > 0;
-    if (hasSelection) { checked.forEach(c => movingItems.push(c.value)); document.getElementById('promptTitle').innerText = `Move ${movingItems.length} Item(s)`; }
-    else if (selectedPath) { movingItems.push(selectedPath); document.getElementById('promptTitle').innerText = `Move "${selectedName}"`; }
+    const title = document.getElementById('moveModalTitle');
+    const btn = document.getElementById('moveModalConfirmBtn');
+
+    if (hasSelection) { 
+        checked.forEach(c => movingItems.push(c.value)); 
+        if (title) title.innerText = `Move ${movingItems.length} Item(s)`; 
+    }
+    else if (selectedPath) { 
+        movingItems.push(selectedPath); 
+        if (title) title.innerText = `Move "${selectedName}"`; 
+    }
     else { uiAlert("No item selected to move."); return; }
 
-    document.getElementById('promptText').innerText = "Enter target folder path (e.g., Folder/Subfolder). Leave empty to move to root.";
-    document.getElementById('promptInput').value = "";
-    document.getElementById('promptOkBtn').onclick = async () => {
-        const targetPath = document.getElementById('promptInput').value.trim();
-        const fd = new FormData();
-        if (hasSelection) {
-            fd.append('bulk_move', '1'); fd.append('move_target', targetPath);
-            movingItems.forEach(itemPath => fd.append('selected_items[]', itemPath));
-        } else {
-            fd.append('move_file', movingItems[0]); fd.append('move_target', targetPath);
-        }
-        try {
-            movingItems.forEach(path => {
-                const item = currentItems.find(i => i.path === path);
-                if (item) item.isMoving = true;
-            });
-            renderExplorer();
-            const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
-            if(result.error) {
-                uiAlert(`Move failed: ${result.error}`);
+    moveModalDir = ""; // Start at root
+    moveModalSelectedPath = "";
+    
+    await renderMoveModal();
+    
+    if (btn) {
+        btn.onclick = async () => {
+            closeModal('moveModal');
+
+            const targetPath = moveModalSelectedPath;
+            const fd = new FormData();
+            if (hasSelection) {
+                fd.append('bulk_move', '1'); fd.append('move_target', targetPath);
+                movingItems.forEach(itemPath => fd.append('selected_items[]', itemPath));
             } else {
-                await fetchExplorer(currentDir, currentSearch, currentPage);
-                showSnackbar(`Moved ${movingItems.length} item(s) successfully.`);
+                fd.append('move_file', movingItems[0]); fd.append('move_target', targetPath);
             }
-        } catch(e) { uiAlert("An error occurred during the move operation."); }
-        finally { closeModal('promptModal'); }
-    };
-    openModal('promptModal');
+            try {
+                movingItems.forEach(path => {
+                    const item = currentItems.find(i => i.path === path);
+                    if (item) item.isMoving = true;
+                });
+                renderExplorer();
+                const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
+                if(result.error) {
+                    uiAlert(`Move failed: ${result.error}`);
+                } else {
+                    await fetchExplorer(currentDir, currentSearch, currentPage);
+                    showSnackbar(`Moved ${movingItems.length} item(s) successfully.`);
+                }
+            } catch(e) { uiAlert("An error occurred during the move operation."); }
+            // finally { closeModal('moveModal'); }
+        };
+    }
+    openModal('moveModal');
+}
+
+async function renderMoveModal() {
+    const list = document.getElementById('moveModalList');
+    
+    try {
+        const response = await fetch(`?dir=${encodeURIComponent(moveModalDir)}&ajax=1`);
+        const data = await response.json();
+        const folders = data.items.filter(item => item.isDir);
+        
+        let html = "";
+        
+        // Root folder option
+        const isRootSelected = moveModalSelectedPath === '';
+        html += `
+            <div class="move-modal-item ${isRootSelected ? 'selected' : ''}" 
+                 data-path=""
+                 onclick="event.stopPropagation(); moveModalSelect('')"
+                 ondblclick="event.stopPropagation(); moveModalNavigate('')">
+                <div class="folder-icon">🏠</div>
+                <div style="font-weight: 500;">/Root</div>
+            </div>
+        `;
+
+        // Go up option
+        if (moveModalDir !== "") {
+            const parent = moveModalDir.split('/').slice(0, -1).join('/');
+            html += `
+                <div class="move-modal-item" onclick="event.stopPropagation(); moveModalNavigate('${escapeJs(parent)}')">
+                    <div class="up-icon">⤴</div>
+                    <div style="font-weight: 500;">..</div>
+                </div>
+            `;
+        }
+        
+        folders.forEach(f => {
+            const isSelected = moveModalSelectedPath === f.path;
+            html += `
+                <div class="move-modal-item ${isSelected ? 'selected' : ''}" 
+                     data-path="${escapeHtml(f.path)}"
+                     onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
+                     ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')">
+                    <div class="folder-icon">📂</div>
+                    <div style="font-weight: 500;">${escapeHtml(f.name)}</div>
+                </div>
+            `;
+        });
+        
+        if (html === "" && moveModalDir === "") {
+            html = `<div style="padding:20px; text-align:center; color:#999;">No folders found in root.</div>`;
+        }
+        
+        list.innerHTML = html;
+        
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = `<div style="padding:20px; text-align:center; color:red;">Failed to load folders.</div>`;
+    }
+}
+
+function moveModalNavigate(path) {
+    moveModalDir = path;
+    moveModalSelectedPath = path; 
+    renderMoveModal();
+}
+
+function moveModalSelect(path) {
+    moveModalSelectedPath = path;
+    
+    const items = document.querySelectorAll('.move-modal-item');
+    items.forEach(item => {
+        if (item.getAttribute('data-path') === path) {
+            item.classList.add('selected');
+        } else {
+            item.classList.remove('selected');
+        }
+    });
 }

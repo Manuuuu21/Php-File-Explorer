@@ -32,18 +32,30 @@ $is_shared_view = false;
 $is_single_file_share = false;
 $single_shared_file_info = null;
 $share_token = $_GET['share'] ?? null;
+$allow_upload = false;
 
 if ($share_token && preg_match('/^[a-f0-9]{32}$/', $share_token)) {
     $sharesDir = __DIR__ . '/.shares';
     $shareFile = $sharesDir . '/' . $share_token;
     if (file_exists($shareFile)) {
-        $shared_relative_path = trim(file_get_contents($shareFile));
+        $content = file_get_contents($shareFile);
+        $shared_data = json_decode($content, true);
+        
+        if (is_array($shared_data)) {
+            $shared_relative_path = $shared_data['path'];
+            $allow_upload = $shared_data['allow_upload'] ?? false;
+        } else {
+            $shared_relative_path = trim($content);
+            $allow_upload = false;
+        }
+        
         $shared_full_path = safePath($realBase . DIRECTORY_SEPARATOR . $shared_relative_path, $realBase);
 
         if ($shared_full_path && file_exists($shared_full_path)) {
             $is_shared_view = true;
             if (is_file($shared_full_path)) {
                 $is_single_file_share = true;
+                $allow_upload = false; // Never allow upload on single file share
                 $baseDir = dirname($shared_full_path);
                 $realBase = realpath($baseDir);
                 $single_shared_file_info = $shared_full_path;
@@ -231,8 +243,8 @@ function sendJsonResponse($data) {
     exit;
 }
 
-// ================= ACTION HANDLERS (ADMIN ONLY) =================
-if (!$is_shared_view) {
+// ================= ACTION HANDLERS (ADMIN OR AUTHORIZED SHARED VIEW) =================
+if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
     // 1. UPLOAD HANDLER
     if (isset($_GET['action']) && $_GET['action'] === 'upload' && !empty($_FILES['upload'])) {
         $totalUsed = getDirectorySize($adminRealBase);
@@ -264,7 +276,10 @@ if (!$is_shared_view) {
         if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
         sendJsonResponse(['success' => true, 'count' => $successCount]);
     }
+}
 
+// ================= ACTION HANDLERS (ADMIN OR SHARED-UPLOAD) =================
+if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
     // 2. BULK OPERATIONS
     if (isset($_POST['bulk_delete']) && !empty($_POST['selected_items'])) {
         foreach ($_POST['selected_items'] as $itemPath) {
@@ -364,22 +379,39 @@ if (!$is_shared_view) {
         if (!file_exists($sharesDir)) @mkdir($sharesDir, 0777, true);
         
         $path_to_share = $_POST['path'] ?? '';
+        $allow_upload_req = (isset($_POST['allow_upload']) && $_POST['allow_upload'] === '1') ? true : false;
+        
         $real_path_to_share = safePath($adminRealBase . DIRECTORY_SEPARATOR . $path_to_share, $adminRealBase);
         if (!$real_path_to_share) sendJsonResponse(['success' => false, 'error' => 'Invalid path']);
 
         $existing_token = null;
         $files = glob($sharesDir . '/*');
         foreach($files as $file){
-            if(is_file($file) && trim(file_get_contents($file)) === $path_to_share) {
-                $existing_token = basename($file);
-                break;
+            if(is_file($file)) {
+                $content = file_get_contents($file);
+                $data = json_decode($content, true);
+                if (is_array($data)) {
+                    if ($data['path'] === $path_to_share && $data['allow_upload'] === $allow_upload_req) {
+                        $existing_token = basename($file);
+                        break;
+                    }
+                } else {
+                    if (trim($content) === $path_to_share && !$allow_upload_req) {
+                        $existing_token = basename($file);
+                        break;
+                    }
+                }
             }
         }
 
         if ($existing_token) sendJsonResponse(['success' => true, 'token' => $existing_token]);
 
         $token = bin2hex(random_bytes(16));
-        file_put_contents($sharesDir . '/' . $token, $path_to_share);
+        $shareData = [
+            'path' => $path_to_share,
+            'allow_upload' => $allow_upload_req
+        ];
+        file_put_contents($sharesDir . '/' . $token, json_encode($shareData));
         sendJsonResponse(['success' => true, 'token' => $token]);
     }
 
@@ -701,7 +733,7 @@ if ($isAjax) {
             <div class="brand"><span>📂 Shared Files</span></div>
             <?php endif; ?>
             
-            <?php if (!$is_shared_view): ?>
+            <?php if (!$is_shared_view || $allow_upload): ?>
             <div class="action-buttons">
                 <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()">📤 <span>Upload Files</span></button>
                 <input type="file" id="uploadInput" multiple style="display:none" onchange="uploadItems('file')">
@@ -709,7 +741,9 @@ if ($isAjax) {
                 <button class="btn btn-outline" onclick="document.getElementById('folderInput').click()">📁 <span>Upload Folder</span></button>
                 <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="uploadItems('folder')">
 
+                <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?>
                 <button class="btn btn-outline" onclick="openModal('folderModal')">🆕 <span>New Folder</span></button>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
         </header>
@@ -719,19 +753,23 @@ if ($isAjax) {
             <div class="breadcrumb-container">
                 <div class="breadcrumb-trail" id="breadcrumbTrail"></div>
                 <div class="breadcrumb-actions">
-                    <?php if (!$is_shared_view): ?>
+                    <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?>
                     <div id="bulkActions" class="bulk-actions-group" style="display: none;">
                         <div class="desktop-bulk-actions">
+                            <?php if (!$is_shared_view): ?>
                             <button class="btn btn-tonal-primary bulkMoveBtn" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
                             <button class="btn btn-tonal-primary bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</button>
+                            <?php endif; ?>
                             <button class="btn btn-tonal-danger bulkDeleteBtn" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
                         </div>
                         <div class="mobile-bulk-actions">
                             <div class="breadcrumb-dropdown">
                                 <button class="btn btn-tonal-primary" onclick="toggleBreadcrumbDropdown(this)">⚡ Actions</button>
                                 <div class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
+                                    <?php if (!$is_shared_view): ?>
                                     <a id="m-dropdown-bulkMoveBtn" onclick="movePrompt()">➡️ Move</a>
                                     <a id="m-dropdown-bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</a>
+                                    <?php endif; ?>
                                     <a id="m-dropdown-bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</a>
                                 </div>
                             </div>
@@ -751,9 +789,9 @@ if ($isAjax) {
         </div>
 
         <div class="explorer-body">
-            <?php if (!$is_shared_view): ?><div class="drop-hint">🚀 Drop here to upload</div><?php endif; ?>
+            <?php if (!$is_shared_view || $allow_upload): ?><div class="drop-hint">🚀 Drop here to upload</div><?php endif; ?>
             
-            <?php if (!$is_shared_view): ?>
+            <?php if (!$is_shared_view || $allow_upload): ?>
             <div id="uploadStatusCard" class="upload-status-card">
                 <div class="upload-info">
                     <div id="uploadCountBadge" style="font-weight: 500; font-size: 0.85rem;">Uploading...</div>
@@ -770,7 +808,7 @@ if ($isAjax) {
 
             <div class="data-table-container">
                 <div class="table-header">
-                    <?php if (!$is_shared_view): ?><div style="text-align:center"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></div><?php else: ?><div style="width:56px"></div><?php endif; ?>
+                    <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?><div style="text-align:center"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></div><?php else: ?><div style="width:56px"></div><?php endif; ?>
                     <div style="cursor:pointer" onclick="changeSort('name')">Name</div>
                     <div class="col-date" style="cursor:pointer" onclick="changeSort('mtime')">Modified</div>
                     <div class="col-type" style="cursor:pointer" onclick="changeSort('type')">Type</div>
@@ -835,19 +873,42 @@ if ($isAjax) {
     <!-- MODALS -->
     <div id="mediaModal" class="modal"><div class="modal-content"><div class="media-header"><div style="display: flex; flex-direction: column; overflow: hidden; gap: 4px;"><span id="mediaTitle">Viewer</span><span id="mediaSubtitle">Preview</span></div><div style="display: flex; align-items: center; gap: 16px;"><button id="pdfSlideshowBtn" class="btn btn-tonal-primary" style="display: none; padding: 8px 16px; border-radius: 20px; font-size: 0.85rem;" onclick="startPdfSlideshow()">📽️ Slideshow</button><span onclick="closeModal('mediaModal')" style="cursor:pointer; font-size:32px; line-height: 1;">&times;</span></div></div><div id="mediaBody"><button class="nav-btn nav-prev" onclick="navigateMedia(-1)">❮</button><div id="mediaContainer"></div><button class="nav-btn nav-next" onclick="navigateMedia(1)">❯</button></div></div></div>
     
-    <?php if (!$is_shared_view): ?>
+    <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?>
     <div id="folderModal" class="modal"><div class="modal-content"><div class="modal-header">New Folder</div><div class="modal-body"><input type="text" id="newFolderName" class="m3-input" placeholder="Folder Name" autofocus></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('folderModal')">Cancel</button><button class="btn btn-primary" onclick="submitNewFolder()">Create</button></div></div></div>
+    <?php endif; ?>
     <div id="confirmModal" class="modal"><div class="modal-content"><div class="modal-header" id="confirmTitle">Confirm</div><div class="modal-body" id="confirmText"></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('confirmModal')">Cancel</button><button class="btn btn-primary" id="confirmOkBtn" style="background: var(--danger)">Delete</button></div></div></div>
     <div id="promptModal" class="modal"><div class="modal-content"><div class="modal-header" id="promptTitle">Input</div><div class="modal-body"><div id="promptText" style="margin-bottom:12px;"></div><input type="text" id="promptInput" class="m3-input"></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('promptModal')">Cancel</button><button class="btn btn-primary" id="promptOkBtn">Confirm</button></div></div></div>
     <div id="alertModal" class="modal"><div class="modal-content"><div class="modal-header" id="alertTitle">Notice</div><div class="modal-body" id="alertText"></div><div class="modal-footer"><button class="btn btn-primary" onclick="closeModal('alertModal')">OK</button></div></div></div>
-    <div id="shareModal" class="modal"><div class="modal-content"><div class="modal-header">Share Link</div><div class="modal-body"><p style="font-size:0.9rem; color: var(--on-surface-variant); margin-top:0; margin-bottom:1rem;">Anyone with this link can view and download.</p><div style="display:flex; gap:8px;"><input type="text" id="shareLinkInput" class="m3-input" readonly><button class="btn btn-primary" id="copyShareBtn" onclick="copyShareLink()">Copy</button></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('shareModal')">Done</button></div></div></div>
+    
+    <div id="moveModal" class="modal">
+        <div class="modal-content" style="max-width: 600px; padding: 0; overflow: hidden;">
+            <div class="modal-header" id="moveModalTitle" style="padding: 24px 24px 16px 24px; margin-bottom: 0;">Move Item(s)</div>
+            <div class="modal-body" style="margin-bottom: 0;">
+                <div class="move-modal-table">
+                    <div class="move-modal-header">
+                        <div style="padding-left: 64px;">Name</div>
+                    </div>
+                    <div id="moveModalList" class="move-modal-list">
+                        <!-- Folders will be loaded here -->
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer" style="padding: 16px 24px 24px 24px; background: #fff;">
+                <button class="btn btn-move-cancel" onclick="closeModal('moveModal')">Cancel</button>
+                <button class="btn btn-move-confirm" id="moveModalConfirmBtn">Move</button>
+            </div>
+        </div>
+    </div>
+    
+    <?php if (!$is_shared_view): ?>
+    <div id="shareModal" class="modal"><div class="modal-content"><div class="modal-header">Share Link</div><div class="modal-body"><p style="font-size:0.9rem; color: var(--on-surface-variant); margin-top:0; margin-bottom:1rem;">Anyone with this link can view and download.</p><div style="display:flex; gap:8px; margin-bottom: 1rem;"><input type="text" id="shareLinkInput" class="m3-input" readonly><button class="btn btn-primary" id="copyShareBtn" onclick="copyShareLink()">Copy</button></div><div id="shareUploadOption" style="display:none; align-items: center; gap: 12px; padding: 12px; background: var(--surface-variant); border-radius: 12px;"><span style="font-size: 0.9rem; font-weight: 500;">Showing upload (single and folder), New Folder and Delete button:</span><select id="shareAllowUpload" class="m3-input" style="width: auto; padding: 4px 8px;" onchange="updateShareLink()"><option value="0">NO</option><option value="1">YES</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('shareModal')">Done</button></div></div></div>
 
     <!-- Context Menu -->
     <div id="contextMenu" class="context-menu">
         <div onclick="sharePrompt()">🔗 Share link</div>
         <div onclick="renamePrompt()">✏️ Rename</div>
         <div id="contextMenubulkMoveBtn" onclick="movePrompt()">➡️ Move</div>
-        <div id="contextMenubulkZipBtn" onclick="submitBulkDelete()">📦 Download as ZIP</div>
+        <div id="contextMenubulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</div>
         <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</div>
     </div>
     <?php endif; ?>
@@ -856,6 +917,7 @@ if ($isAjax) {
     <script>
     // Initialize the JS with data from PHP
     isSharedView = <?= $is_shared_view ? 'true' : 'false' ?>;
+    allowUpload = <?= $allow_upload ? 'true' : 'false' ?>;
     isSingleFileShare = <?= $is_single_file_share ? 'true' : 'false' ?>;
     sharedFolderName = "<?= $is_shared_view ? basename($realBase) : '' ?>";
     currentDir = "<?= addslashes($relativeDir) ?>";
@@ -868,7 +930,7 @@ if ($isAjax) {
     window.fileIndex = [];
     
     window.onload = () => {
-        if (!isSharedView) setupDragAndDrop();
+        if (!isSharedView || (isSharedView && allowUpload)) setupDragAndDrop();
         
         const params = new URLSearchParams(window.location.search);
         if (params.get('mystorage') === 'quota' && !isSharedView) {
