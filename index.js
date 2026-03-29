@@ -1635,11 +1635,14 @@ async function sharePrompt() {
     const allowUploadSelect = document.getElementById('shareAllowUpload');
     
     if (isDir) {
-        uploadOption.style.display = 'flex';
+        uploadOption.style.display = '';
         allowUploadSelect.value = "0";
     } else {
         uploadOption.style.display = 'none';
     }
+
+    const textElement = document.getElementById('sharePermissionText');
+    textElement.style.color = "gray";
 
     const fd = new FormData();
     fd.append('action', 'create_share');
@@ -1677,6 +1680,15 @@ async function updateShareLink() {
         }
     } catch (e) {
         console.error("Error updating share link:", e);
+    }
+
+
+    const textElement = document.getElementById('sharePermissionText');
+    // Toggle color based on selection value
+    if (allowUpload === "1") {
+        textElement.style.color = "black";
+    } else {
+        textElement.style.color = "gray";
     }
 }
 

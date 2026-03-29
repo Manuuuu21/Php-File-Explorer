@@ -901,7 +901,20 @@ if ($isAjax) {
     </div>
     
     <?php if (!$is_shared_view): ?>
-    <div id="shareModal" class="modal"><div class="modal-content"><div class="modal-header">Share Link</div><div class="modal-body"><p style="font-size:0.9rem; color: var(--on-surface-variant); margin-top:0; margin-bottom:1rem;">Anyone with this link can view and download.</p><div style="display:flex; gap:8px; margin-bottom: 1rem;"><input type="text" id="shareLinkInput" class="m3-input" readonly><button class="btn btn-primary" id="copyShareBtn" onclick="copyShareLink()">Copy</button></div><div id="shareUploadOption" style="display:none; align-items: center; gap: 12px; padding: 12px; background: var(--surface-variant); border-radius: 12px;"><span style="font-size: 0.9rem; font-weight: 500;">Showing upload (single and folder), New Folder and Delete button:</span><select id="shareAllowUpload" class="m3-input" style="width: auto; padding: 4px 8px;" onchange="updateShareLink()"><option value="0">NO</option><option value="1">YES</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('shareModal')">Done</button></div></div></div>
+    <div id="shareModal" class="modal"><div class="modal-content"><div class="modal-header">Share Link</div><div class="modal-body"><p style="font-size:0.9rem; color: var(--on-surface-variant); margin-top:0; margin-bottom:1rem;">Anyone with this link can view and download.</p><div style="display:flex; gap:8px; margin-bottom: 1rem;"><input type="text" id="shareLinkInput" class="m3-input" readonly><button class="btn btn-primary" id="copyShareBtn" onclick="copyShareLink()">Copy</button></div>
+    <div id="shareUploadOption" style="display:none; align-items: center; gap: 12px; padding: 12px; background: var(--surface-variant); border-radius: 12px;background:lightgray;"><span style="font-size: 1.1rem; font-weight: 500;"><b>🛡️ Advance Permissions</b></span><br/><br/>
+            <div id="sharePermissionText" style="color: gray;">
+                <div>  📤 Allow viewers to upload files and folders</div>
+                <div>  📁 Allow viewers to create new folders</div>
+                <div>  🗑️ Allow viewers to delete items</div>
+            </div>
+        <div style="position: absolute;bottom: 10.9em;right: 2em;">
+            <select id="shareAllowUpload" class="m3-input" style="width: auto; padding: 4px 8px;border: 1px solid gray;" onchange="updateShareLink()">
+                <option value="0">NO</option>
+                <option value="1">YES</option>
+            </select>
+        </div>
+    </div></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('shareModal')">Close</button></div></div></div>
 
     <!-- Context Menu -->
     <div id="contextMenu" class="context-menu">
