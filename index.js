@@ -804,7 +804,7 @@ async function processUploadBatch(batch) {
             await uploadPromise; 
             // Individual item upload finished, but we keep isUploading=true until the whole batch is done
         } catch (e) { 
-            if (currentXhr) break; 
+            console.error('Upload failed for:', fileName, e);
         }
     }
     card.style.display = 'none';

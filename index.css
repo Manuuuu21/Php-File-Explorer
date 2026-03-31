@@ -904,3 +904,133 @@ input[type="checkbox"] {
     .status-controls .item-counter { display: block; }
     input[type="checkbox"] { display: block; margin: auto;}
 }
+
+/* Redesigned Share Modal */
+.share-modal-content {
+    border-radius: 24px;
+    padding: 30px;
+    max-width: 480px;
+    width: 90%;
+    background: white;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+    border: none;
+    position: relative;
+}
+
+.share-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 600;
+    color: #1a1a1a;
+}
+
+.share-subtitle {
+    margin: 8px 0 20px 0;
+    color: #555;
+    font-size: 15px;
+}
+
+.share-input-group {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+}
+
+.share-input {
+    flex: 1;
+    padding: 10px 15px;
+    border: 1.5px solid #3f51b5;
+    border-radius: 12px;
+    font-size: 16px;
+    color: #333;
+    outline: none;
+    background: white;
+    min-width: 0;
+}
+
+.btn-copy {
+    background: #3f51b5;
+    color: white;
+    border: none;
+    padding: 10px 25px;
+    border-radius: 20px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+
+.btn-copy:hover {
+    background: #303f9f;
+}
+
+.advanced-permissions-box {
+    background: #e0e0e0;
+    border-radius: 16px;
+    padding: 20px;
+    position: relative;
+}
+
+.advanced-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.advanced-title {
+    font-size: 18px;
+    color: #1a1a1a;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.advanced-select {
+    padding: 5px 10px;
+    border-radius: 12px;
+    border: 1px solid #999;
+    background: #e0e0e0;
+    font-size: 16px;
+    outline: none;
+    cursor: pointer;
+}
+
+.permissions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 16px;
+    transition: color 0.3s;
+}
+
+.permission-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.share-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 25px;
+}
+
+.btn-close {
+    background: white;
+    color: #3f51b5;
+    border: 1px solid #ccc;
+    padding: 8px 25px;
+    border-radius: 20px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.btn-close:hover {
+    background: #f5f5f5;
+}

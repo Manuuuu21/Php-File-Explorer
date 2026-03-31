@@ -19,12 +19,17 @@ $storageLimit = 100 * 1024 * 1024 * 1024; // 100 GB
 
 // --- FORWARD DECLARATION OF HELPERS ---
 function safePath($path, $realBase) {
+    if (!$path || !$realBase) return false;
     $realPath = realpath($path);
     if ($realPath === false) {
-        $parent = realpath(dirname($path));
-        return ($parent && strpos($parent, $realBase) === 0) ? $path : false;
+        $parent = dirname($path);
+        $realParent = realpath($parent);
+        if ($realParent === false) return false;
+        if ($realParent !== $realBase && strpos($realParent, $realBase . DIRECTORY_SEPARATOR) !== 0) return false;
+        return $path;
     }
-    return (strpos($realPath, $realBase) === 0) ? $realPath : false;
+    if ($realPath !== $realBase && strpos($realPath, $realBase . DIRECTORY_SEPARATOR) !== 0) return false;
+    return $realPath;
 }
 
 // ================= SHARE LINK HANDLING (BEFORE AUTH) =================
@@ -256,18 +261,23 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $files = $_FILES['upload'];
         $successCount = 0;
         $relativePath = $_POST['relativePath'] ?? '';
+        if (!empty($relativePath)) {
+            $relativePath = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
+        }
+        
         for ($i = 0; $i < count($files['name']); $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
                 $name = basename($files['name'][$i]);
                 if (!empty($relativePath)) {
                     $targetFile = $currentDir . DIRECTORY_SEPARATOR . ltrim($relativePath, DIRECTORY_SEPARATOR);
                     $targetDir = dirname($targetFile);
-                    if (!file_exists($targetDir)) mkdir($targetDir, 0777, true);
+                    if (!file_exists($targetDir)) @mkdir($targetDir, 0777, true);
                 } else {
                     $targetFile = $currentDir . DIRECTORY_SEPARATOR . $name;
                 }
+                
                 if (safePath($targetFile, $realBase)) {
-                    if (move_uploaded_file($files['tmp_name'][$i], $targetFile)) {
+                    if (@move_uploaded_file($files['tmp_name'][$i], $targetFile)) {
                         $successCount++;
                     }
                 }
@@ -901,20 +911,38 @@ if ($isAjax) {
     </div>
     
     <?php if (!$is_shared_view): ?>
-    <div id="shareModal" class="modal"><div class="modal-content"><div class="modal-header">Share Link</div><div class="modal-body"><p style="font-size:0.9rem; color: var(--on-surface-variant); margin-top:0; margin-bottom:1rem;">Anyone with this link can view and download.</p><div style="display:flex; gap:8px; margin-bottom: 1rem;"><input type="text" id="shareLinkInput" class="m3-input" readonly><button class="btn btn-primary" id="copyShareBtn" onclick="copyShareLink()">Copy</button></div>
-    <div id="shareUploadOption" style="display:none; align-items: center; gap: 12px; padding: 12px; background: var(--surface-variant); border-radius: 12px;background:lightgray;"><span style="font-size: 1.1rem; font-weight: 500;"><b>🛡️ Advance Permissions</b></span><br/><br/>
-            <div id="sharePermissionText" style="color: gray;">
-                <div>  📤 Allow viewers to upload files and folders</div>
-                <div>  📁 Allow viewers to create new folders</div>
-                <div>  🗑️ Allow viewers to delete items</div>
+    <div id="shareModal" class="modal">
+        <div class="modal-content share-modal-content">
+            <div class="share-modal-body">
+                <h2 class="share-title">Share Link</h2>
+                <p class="share-subtitle">Anyone with this link can view and download.</p>
+                
+                <div class="share-input-group">
+                    <input type="text" id="shareLinkInput" class="share-input" readonly>
+                    <button class="btn-copy" id="copyShareBtn" onclick="copyShareLink()">Copy</button>
+                </div>
+                
+                <div id="shareUploadOption" class="advanced-permissions-box" style="display:none;">
+                    <div class="advanced-header">
+                        <span class="advanced-title">🛡️ Advance Permissions</span>
+                        <select id="shareAllowUpload" class="advanced-select" onchange="updateShareLink()">
+                            <option value="0">NO</option>
+                            <option value="1">YES</option>
+                        </select>
+                    </div>
+                    <div id="sharePermissionText" class="permissions-list">
+                        <div class="permission-item">📤 Allow viewers to upload files and folders</div>
+                        <div class="permission-item">📂 Allow viewers to create new folders</div>
+                        <div class="permission-item">🗑️ Allow viewers to delete items</div>
+                    </div>
+                </div>
+                
+                <div class="share-modal-footer">
+                    <button class="btn-close" onclick="closeModal('shareModal')">Close</button>
+                </div>
             </div>
-        <div style="position: absolute;bottom: 10.9em;right: 2em;">
-            <select id="shareAllowUpload" class="m3-input" style="width: auto; padding: 4px 8px;border: 1px solid gray;" onchange="updateShareLink()">
-                <option value="0">NO</option>
-                <option value="1">YES</option>
-            </select>
         </div>
-    </div></div><div class="modal-footer"><button class="btn btn-outline" onclick="closeModal('shareModal')">Close</button></div></div></div>
+    </div>
 
     <!-- Context Menu -->
     <div id="contextMenu" class="context-menu">
