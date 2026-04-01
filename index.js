@@ -33,6 +33,18 @@ let storageLimit = `100 GB`; // This is only for txt display. Make sure it is sy
 
 const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js', 'xlsx', 'xls'];
 
+const FILE_TYPE_ICONS = {
+    'zip': 'img-icon/file-icon/zip.png',
+    'rar': 'img-icon/file-icon/rar.png',
+    'doc': 'img-icon/file-icon/doc.png',
+    'docx': 'img-icon/file-icon/doc.png',
+    'pdf': 'img-icon/file-icon/pdf.png',
+    'ppt': 'img-icon/file-icon/ppt.png',
+    'pptx': 'img-icon/file-icon/ppt.png',
+    'xls': 'img-icon/file-icon/xls.png',
+    'xlsx': 'img-icon/file-icon/xls.png'
+};
+
 // --- HELPERS ---
 function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text; return div.innerHTML; }
 function escapeJs(str) {
@@ -312,12 +324,24 @@ document.addEventListener('click', function(event) {
 });
 
 function getFileIcon(item) {
-    if (item.isDir) return '📂';
+    if (item.isDir) return `<img src="img-icon/file-icon/folder.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
     const name = item.name.toLowerCase();
-    if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.bmp')) return '🖼️';
-    if (name.endsWith('.mp4') || name.endsWith('.avi') || name.endsWith('.mov') || name.endsWith('.mkv')) return '📹';
-    if (name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.ogg')) return '🔊';
-    return '📄';
+    const ext = name.split('.').pop();
+    
+    if (FILE_TYPE_ICONS[ext]) {
+        return `<img src="${FILE_TYPE_ICONS[ext]}" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+    }
+
+    if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.bmp')) {
+        return `<img src="img-icon/file-icon/photo.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+    }
+    if (name.endsWith('.mp4') || name.endsWith('.avi') || name.endsWith('.mov') || name.endsWith('.mkv')) {
+        return `<img src="img-icon/file-icon/video.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+    }
+    if (name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.ogg')) {
+        return `<img src="img-icon/file-icon/audio.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+    }
+    return `<img src="img-icon/file-icon/file.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
 }
 
 function renderExplorer(loading = false) {
@@ -416,10 +440,10 @@ function renderExplorer(loading = false) {
         const isActive = activePaths.includes(f.path);
         const isUploading = f.isUploading || f.isCreating || f.isMoving || f.isCopying || f.isDeleting;
         
-        let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download">📥</span>` : '';
+        let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download"> <img src="img-icon/file-icon/download.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> </span>` : '';
         let contextMenu = (isSharedView || isUploading) ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
         let checkbox = (isSharedView && !allowUpload) ? `<div style="width:56px"></div>` : `<div style="text-align:center"><input type="checkbox" name="selected_items[]" value="${escapeHtml(f.path)}" ${isActive ? 'checked' : ''} ${isUploading ? 'disabled' : ''} onclick="event.stopPropagation(); updateBulkBtn()"></div>`;
-        let actions = (isSharedView && !allowUpload) || isUploading ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete">🗑️</span>`;
+        let actions = (isSharedView && !allowUpload) || isUploading ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete"> <img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> </span>`;
 
         let rowStyle = isUploading ? 'opacity: 0.6; pointer-events: none;' : '';
         let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading... ${f.progress || 0}%</span>` : 
@@ -738,6 +762,7 @@ async function processUploadBatch(batch) {
 
     card.style.display = 'flex';
     
+    let failed = false;
     for (let i = 0; i < batch.length; i++) {
         const item = batch[i];
         const fileName = item.relativePath || item.file.name;
@@ -805,6 +830,8 @@ async function processUploadBatch(batch) {
             // Individual item upload finished, but we keep isUploading=true until the whole batch is done
         } catch (e) { 
             console.error('Upload failed for:', fileName, e);
+            failed = true;
+            break; // Stop the batch on any failure
         }
     }
     card.style.display = 'none';
@@ -820,7 +847,9 @@ async function processUploadBatch(batch) {
     sortItemsLocally();
     renderExplorer();
 
-    showSnackbar(`${batch.length} file(s) uploaded successfully.`);
+    if (!failed) {
+        showSnackbar(`${batch.length} file(s) uploaded successfully.`);
+    }
 
     if (isStorageView) {
         fetchExplorer('', '', 1);
@@ -1007,31 +1036,31 @@ function updateBulkBtn() {
         bulkActions.style.display = 'flex';
         
         const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
-        if (bulkDeleteBtn) bulkDeleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+        if (bulkDeleteBtn) bulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
         
         const bulkMoveBtn = document.getElementById('bulkMoveBtn');
-        if (bulkMoveBtn) bulkMoveBtn.innerHTML = `➡️ Move (${checkedCount})`;
+        if (bulkMoveBtn) bulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
         
         const bulkZipBtn = document.getElementById('bulkZipBtn');
-        if (bulkZipBtn) bulkZipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        if (bulkZipBtn) bulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
 
         const mBulkDeleteBtn = document.getElementById('m-dropdown-bulkDeleteBtn');
-        if (mBulkDeleteBtn) mBulkDeleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+        if (mBulkDeleteBtn) mBulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
         
         const mBulkMoveBtn = document.getElementById('m-dropdown-bulkMoveBtn');
-        if (mBulkMoveBtn) mBulkMoveBtn.innerHTML = `➡️ Move (${checkedCount})`;
+        if (mBulkMoveBtn) mBulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
         
         const mBulkZipBtn = document.getElementById('m-dropdown-bulkZipBtn');
-        if (mBulkZipBtn) mBulkZipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        if (mBulkZipBtn) mBulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
 
         const ctxBulkMoveBtn = document.getElementById('contextMenubulkMoveBtn');
-        if (ctxBulkMoveBtn) ctxBulkMoveBtn.innerHTML = `➡️ Move (${checkedCount})`;
+        if (ctxBulkMoveBtn) ctxBulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
         
         const ctxBulkDeleteBtn = document.getElementById('contextMenubulkDeleteBtn');
-        if (ctxBulkDeleteBtn) ctxBulkDeleteBtn.innerHTML = `🗑️ Delete (${checkedCount})`;
+        if (ctxBulkDeleteBtn) ctxBulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
         
         const ctxBulkZipBtn = document.getElementById('contextMenubulkZipBtn');
-        if (ctxBulkZipBtn) ctxBulkZipBtn.innerHTML = `📦 Download as ZIP (${checkedCount})`;
+        if (ctxBulkZipBtn) ctxBulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
     } else {
         bulkActions.style.display = 'none';
     }
@@ -1039,6 +1068,23 @@ function updateBulkBtn() {
 
 function handleContextMenu(e, el) { 
     e.preventDefault(); 
+    
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) selectAll.checked = false;
+
+    document.querySelectorAll('.table-row').forEach(row => {
+        row.classList.remove('active-row');
+        const checkbox = row.querySelector('input[type="checkbox"]');
+        if (checkbox) {
+            checkbox.checked = false;
+        }
+    });
+    el.classList.add('active-row');
+    const checkbox = el.querySelector('input[type="checkbox"]');
+    if (checkbox) {
+        checkbox.checked = true;
+    }
+    updateBulkBtn();
     selectedPath = el.dataset.path; selectedName = el.dataset.name; 
     const menu = document.getElementById('contextMenu'); 
     let x = e.pageX, y = e.pageY;
@@ -1046,7 +1092,18 @@ function handleContextMenu(e, el) {
     if (y + 150 > window.innerHeight) y -= 150;
     menu.style.left = x + 'px'; menu.style.top = y + 'px'; menu.style.display = 'block'; 
 }
-document.addEventListener('click', () => { if (document.getElementById('contextMenu')) document.getElementById('contextMenu').style.display = 'none' });
+document.addEventListener('click', () => { 
+    const menu = document.getElementById('contextMenu');
+    if (menu && menu.style.display === 'block') {
+        menu.style.display = 'none';
+        document.querySelectorAll('.table-row').forEach(row => {
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (!checkbox || !checkbox.checked) {
+                row.classList.remove('active-row');
+            }
+        });
+    }
+});
 
 function openMediaViewer(path) {
     const item = currentItems.find(i => i.path === path);

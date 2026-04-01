@@ -102,7 +102,7 @@ if (!$is_shared_view) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Login - File Explorer</title>
+        <title>Login - File Explorer </title>
         <style>
             :root { --primary: #3f51b5; --bg: #f3f4f9; --text: #1c1b1f; --surface: #ffffff; }
             body { font-family: 'Roboto', system-ui, sans-serif; background: var(--bg); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
@@ -117,7 +117,7 @@ if (!$is_shared_view) {
     </head>
     <body>
         <div class="login-card">
-            <h2>📂 Welcome</h2>
+            <h2>📂 Welcome </h2>
             <?php if ($login_error): ?>
                 <div class="error"><?= htmlspecialchars($login_error) ?></div>
             <?php endif; ?>
@@ -745,14 +745,14 @@ if ($isAjax) {
             
             <?php if (!$is_shared_view || $allow_upload): ?>
             <div class="action-buttons">
-                <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()">📤 <span>Upload Files</span></button>
+                <button id="uploadBtn" class="btn btn-primary" onclick="document.getElementById('uploadInput').click()"><img src="img-icon/file-icon/upload.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> <span>Upload Files</span></button>
                 <input type="file" id="uploadInput" multiple style="display:none" onchange="uploadItems('file')">
                 
-                <button class="btn btn-outline" onclick="document.getElementById('folderInput').click()">📁 <span>Upload Folder</span></button>
+                <button class="btn btn-outline" onclick="document.getElementById('folderInput').click()"><img src="img-icon/file-icon/folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> <span>Upload Folder</span></button>
                 <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="uploadItems('folder')">
 
                 <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?>
-                <button class="btn btn-outline" onclick="openModal('folderModal')">🆕 <span>New Folder</span></button>
+                <button class="btn btn-outline" onclick="openModal('folderModal')"><img src="img-icon/file-icon/new-folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> <span>New Folder</span></button>
                 <?php endif; ?>
             </div>
             <?php endif; ?>
@@ -931,9 +931,9 @@ if ($isAjax) {
                         </select>
                     </div>
                     <div id="sharePermissionText" class="permissions-list">
-                        <div class="permission-item">📤 Allow viewers to upload files and folders</div>
-                        <div class="permission-item">📂 Allow viewers to create new folders</div>
-                        <div class="permission-item">🗑️ Allow viewers to delete items</div>
+                        <div class="permission-item"><img src="img-icon/file-icon/upload.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to upload files and folders</div>
+                        <div class="permission-item"><img src="img-icon/file-icon/new-folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to create new folders</div>
+                        <div class="permission-item"><img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to delete items</div>
                     </div>
                 </div>
                 
@@ -946,11 +946,11 @@ if ($isAjax) {
 
     <!-- Context Menu -->
     <div id="contextMenu" class="context-menu">
-        <div onclick="sharePrompt()">🔗 Share link</div>
-        <div onclick="renamePrompt()">✏️ Rename</div>
-        <div id="contextMenubulkMoveBtn" onclick="movePrompt()">➡️ Move</div>
-        <div id="contextMenubulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</div>
-        <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</div>
+        <div onclick="sharePrompt()"><img src="img-icon/file-icon/share-link.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Share link</div>
+        <div onclick="renamePrompt()"><img src="img-icon/file-icon/rename.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Rename</div>
+        <div id="contextMenubulkMoveBtn" onclick="movePrompt()"><img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move</div>
+        <div id="contextMenubulkZipBtn" onclick="submitBulkZip()"><img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP</div>
+        <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()"><img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete</div>
     </div>
     <?php endif; ?>
 
