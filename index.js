@@ -1,4 +1,5 @@
 // --- STATE VARIABLES ---
+let fullIndex = null;
 let currentDir = "";
 let currentSearch = "";
 let currentItems = [];
@@ -324,24 +325,24 @@ document.addEventListener('click', function(event) {
 });
 
 function getFileIcon(item) {
-    if (item.isDir) return `<img src="img-icon/file-icon/folder.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+    if (item.isDir) return `<img src="img-icon/file-icon/folder.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
     const name = item.name.toLowerCase();
     const ext = name.split('.').pop();
     
     if (FILE_TYPE_ICONS[ext]) {
-        return `<img src="${FILE_TYPE_ICONS[ext]}" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+        return `<img src="${FILE_TYPE_ICONS[ext]}" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
     }
 
     if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.gif') || name.endsWith('.bmp')) {
-        return `<img src="img-icon/file-icon/photo.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+        return `<img src="img-icon/file-icon/photo.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
     }
     if (name.endsWith('.mp4') || name.endsWith('.avi') || name.endsWith('.mov') || name.endsWith('.mkv')) {
-        return `<img src="img-icon/file-icon/video.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+        return `<img src="img-icon/file-icon/video.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
     }
     if (name.endsWith('.mp3') || name.endsWith('.wav') || name.endsWith('.ogg')) {
-        return `<img src="img-icon/file-icon/audio.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+        return `<img src="img-icon/file-icon/audio.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
     }
-    return `<img src="img-icon/file-icon/file.png" style="width:27px; height:22px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
+    return `<img src="img-icon/file-icon/file.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />`;
 }
 
 function renderExplorer(loading = false) {
@@ -422,7 +423,7 @@ function renderExplorer(loading = false) {
 
     if (!currentSearch && currentDir !== "" && currentPage === 1) {
         const parent = currentDir.split('/').slice(0, -1).join('/');
-        html += `<div class="table-row folder" style="position:sticky;top:40px;background:white;z-index:1;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"><span class="icon">⤴️</span> ..</div></div>`;
+        html += `<div class="table-row folder" style="position:sticky;top:40px;background:white;z-index:1;" onclick="fetchExplorer('${escapeJs(parent)}', '', 1)"><div class="col"></div><div class="col-name"> <span class="icon"><img src="img-icon/file-icon/back.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> </span> ..</div></div>`;
     }
 
     items.forEach(f => {
@@ -462,7 +463,7 @@ function renderExplorer(loading = false) {
              onclick="${isUploading ? '' : `handleRowClick(event, '${escapeJs(f.path)}', ${f.isDir ? `'dir'` : `'file'`})`}">
             ${checkbox}
             <div class="col-name">
-                <span class="icon">${isUploading ? '⏳' : getFileIcon(f)}</span>
+                <span class="icon">${isUploading ? '<img src="img-icon/file-icon/hour-glass.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" />' : getFileIcon(f)}</span>
                 <div style="display: flex; flex-direction: column; min-width: 0;">
                     ${nameContent}
                     ${currentSearch ? `<span style="font-size:0.6rem; color:#888;">in ${escapeHtml(f.path.substring(0, f.path.lastIndexOf('/')) || 'Root')}</span>` : ''}
@@ -624,17 +625,83 @@ async function pasteItems() {
                 clipboardItems = [];
                 clipboardSourceDir = "";
             }
-            await fetchExplorer(currentDir, currentSearch, currentPage);
+            await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
             showSnackbar(`${count} files have been ${actionText} from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
         }
     } catch(e) { 
         transferSnackbar.close();
         uiAlert("An error occurred during the paste operation."); 
-        await fetchExplorer(currentDir, currentSearch, currentPage);
+        await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
     }
 }
 
-async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
+async function fetchExplorer(dir, search = "", page = 1, updateHistory = true, forceServer = false) {
+    if (fullIndex && !isSharedView && !forceServer) {
+        currentDir = dir;
+        currentSearch = search;
+        
+        let filtered = fullIndex.filter(item => {
+            if (search) {
+                return item.name.toLowerCase().includes(search.toLowerCase());
+            }
+            if (!dir) {
+                return item.path.indexOf('/') === -1;
+            }
+            const prefix = dir + '/';
+            if (item.path.startsWith(prefix)) {
+                const relative = item.path.substring(prefix.length);
+                return relative.indexOf('/') === -1;
+            }
+            return false;
+        });
+
+        currentItems = filtered.map(item => ({
+            ...item,
+            mtime_f: new Date(item.mtime * 1000).toISOString().replace('T', ' ').substring(0, 16),
+            size_f: item.isDir ? '--' : formatBytes(item.size)
+        }));
+
+        sortItemsLocally();
+        
+        totalItems = currentItems.length;
+        perPage = search ? 50 : 100000;
+        currentPage = page;
+
+        if (search) {
+            const start = (page - 1) * perPage;
+            currentItems = currentItems.slice(start, start + perPage);
+        }
+
+        activePaths = [];
+        lastClickTime = 0;
+        lastClickPath = null;
+
+        const myFilesBtn = document.getElementById('myFilesBtn');
+        if (myFilesBtn) myFilesBtn.style.background = "#eee";
+
+        const clearSearchBtn = document.getElementById('clearSearchBtn');
+        const searchInput = document.getElementById('searchInput');
+        if (clearSearchBtn) clearSearchBtn.style.display = currentSearch ? 'inline' : 'none';
+        if (searchInput) searchInput.value = currentSearch;
+
+        renderExplorer();
+
+        if (updateHistory) {
+            const searchParams = new URLSearchParams(window.location.search);
+            searchParams.delete('mystorage');
+            if (dir) searchParams.set('dir', dir); else searchParams.delete('dir');
+            if (search) searchParams.set('search', search); else searchParams.delete('search');
+            if (page > 1) searchParams.set('page', page); else searchParams.delete('page');
+            
+            let newUrl = window.location.pathname;
+            const qs = searchParams.toString();
+            if (qs) newUrl += '?' + qs;
+            
+            window.history.pushState({ dir, search, page }, '', newUrl);
+        }
+        return;
+    }
+
     try {
         let url = `?dir=${encodeURIComponent(dir)}&search=${encodeURIComponent(search)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1`;
         if (isSharedView) {
@@ -645,6 +712,8 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
         const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         const data = await response.json();
         
+        if (!isSharedView) await fetchFullIndex();
+
         activePaths = [];
         lastClickTime = 0;
         lastClickPath = null;
@@ -686,6 +755,8 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true) {
 
 function navigatePage(dir) {
     fetchExplorer(currentDir, currentSearch, currentPage + dir);
+    const myFilesBtn = document.getElementById('myFilesBtn');
+    myFilesBtn.style.background = "";
 }
 
 function updateStats(stats) {
@@ -852,9 +923,9 @@ async function processUploadBatch(batch) {
     }
 
     if (isStorageView) {
-        fetchExplorer('', '', 1);
+        fetchExplorer('', '', 1, true, true);
     } else {
-        fetchExplorer(currentDir, currentSearch, currentPage);
+        fetchExplorer(currentDir, currentSearch, currentPage, true, true);
     }
 }
 
@@ -980,11 +1051,11 @@ function deleteItem(path, name) {
             }
             const res = await fetch(url);
             if (!res.ok) throw new Error("Delete failed");
-            await fetchExplorer(currentDir, currentSearch, currentPage, false);
+            await fetchExplorer(currentDir, currentSearch, currentPage, false, true);
             showSnackbar(`"${name}" deleted successfully.`);
         } catch (e) {
             uiAlert(`Failed to delete "${name}".`);
-            await fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
+            await fetchExplorer(currentDir, currentSearch, currentPage, true, true); // Restore list
         }
     }); 
 }
@@ -1069,22 +1140,30 @@ function updateBulkBtn() {
 function handleContextMenu(e, el) { 
     e.preventDefault(); 
     
-    const selectAll = document.getElementById('selectAll');
-    if (selectAll) selectAll.checked = false;
+    const path = el.dataset.path;
+    
+    // If the clicked item is NOT in the current selection, reset selection
+    if (!activePaths.includes(path)) {
+        const selectAll = document.getElementById('selectAll');
+        if (selectAll) selectAll.checked = false;
 
-    document.querySelectorAll('.table-row').forEach(row => {
-        row.classList.remove('active-row');
-        const checkbox = row.querySelector('input[type="checkbox"]');
+        document.querySelectorAll('.table-row').forEach(row => {
+            row.classList.remove('active-row');
+            const checkbox = row.querySelector('input[type="checkbox"]');
+            if (checkbox) {
+                checkbox.checked = false;
+            }
+        });
+        
+        el.classList.add('active-row');
+        const checkbox = el.querySelector('input[type="checkbox"]');
         if (checkbox) {
-            checkbox.checked = false;
+            checkbox.checked = true;
         }
-    });
-    el.classList.add('active-row');
-    const checkbox = el.querySelector('input[type="checkbox"]');
-    if (checkbox) {
-        checkbox.checked = true;
+        activePaths = [path];
+        updateBulkBtn();
     }
-    updateBulkBtn();
+    
     selectedPath = el.dataset.path; selectedName = el.dataset.name; 
     const menu = document.getElementById('contextMenu'); 
     let x = e.pageX, y = e.pageY;
@@ -1588,20 +1667,30 @@ async function submitNewFolder() {
         const response = await fetch(url, {method:'POST', body:fd});
         const res = await response.json();
         if (res.success) { 
-            await fetchExplorer(currentDir, currentSearch, currentPage, false); 
+            await fetchExplorer(currentDir, currentSearch, currentPage, false, true); 
             showSnackbar(`Folder "${n}" created.`);
         } else {
             uiAlert("Folder already exists or invalid name.");
-            await fetchExplorer(currentDir, currentSearch, currentPage);
+            await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
         }
     } catch(e) { 
         uiAlert("Error creating folder."); 
-        await fetchExplorer(currentDir, currentSearch, currentPage);
+        await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
     }
 }
-function handleSearchKeyUp(e) { const storageBtn = document.getElementById('storageBtn'); const myFilesBtn = document.getElementById('myFilesBtn'); if(e.key === 'Enter') {fetchExplorer(currentDir, e.target.value.trim(), 1); if (storageBtn) storageBtn.style.background = ""; if (myFilesBtn) myFilesBtn.style.background = "";} }
+function handleSearchKeyUp(e) { 
+    const storageBtn = document.getElementById('storageBtn'); 
+    const myFilesBtn = document.getElementById('myFilesBtn'); 
+    if(e.key === 'Enter') {
+        fetchExplorer(currentDir, e.target.value.trim(), 1); 
+        if (storageBtn) storageBtn.style.background = ""; 
+        if (myFilesBtn) myFilesBtn.style.background = "";
+        const explorerBody = document.querySelector('.explorer-body');
+        if (explorerBody) explorerBody.scrollTop = 0;
+    } 
+}
 function clearSearch() { const myFilesBtn = document.getElementById('myFilesBtn'); if (myFilesBtn) myFilesBtn.style.background = "#eee"; document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
-async function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; await fetchExplorer(currentDir, currentSearch, currentPage); showSnackbar("Upload cancelled."); }
+async function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; await fetchExplorer(currentDir, currentSearch, currentPage, true, true); showSnackbar("Upload cancelled."); }
 
 function submitBulkDelete() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
@@ -1629,11 +1718,11 @@ function submitBulkDelete() {
             const res = await fetch(url, {method:'POST', body:fd});
             const resJson = await res.json();
             if (!res.ok) throw new Error("Bulk delete failed");
-            await fetchExplorer(currentDir, currentSearch, currentPage, false);
+            await fetchExplorer(currentDir, currentSearch, currentPage, false, true);
             showSnackbar(`${checked.length} items deleted.`);
         } catch (e) {
             uiAlert("Failed to delete some items.");
-            await fetchExplorer(currentDir, currentSearch, currentPage); // Restore list
+            await fetchExplorer(currentDir, currentSearch, currentPage, true, true); // Restore list
         }
     });
 }
@@ -1672,7 +1761,7 @@ function renamePrompt() {
                 const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
                 const result = await res.json();
                 if (result.success) {
-                    await fetchExplorer(currentDir, currentSearch, currentPage);
+                    await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
                     showSnackbar(`Renamed to "${n}"`);
                 } else {
                     showSnackbar(`Rename failed: ${result.error || 'Unknown error'}`, { duration: 5000 });
@@ -1809,10 +1898,13 @@ async function movePrompt() {
                 if(result.error) {
                     uiAlert(`Move failed: ${result.error}`);
                 } else {
-                    await fetchExplorer(currentDir, currentSearch, currentPage);
+                    await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
                     showSnackbar(`Moved ${movingItems.length} item(s) successfully.`);
                 }
-            } catch(e) { uiAlert("An error occurred during the move operation."); }
+            } catch(e) { 
+                uiAlert("An error occurred during the move operation."); 
+                await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
+            }
             // finally { closeModal('moveModal'); }
         };
     }
@@ -1895,4 +1987,14 @@ function moveModalSelect(path) {
             item.classList.remove('selected');
         }
     });
+}
+
+async function fetchFullIndex() {
+    if (isSharedView) return;
+    try {
+        const response = await fetch('?action=get_full_index', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        fullIndex = await response.json();
+    } catch (e) {
+        console.error("Failed to fetch full index", e);
+    }
 }

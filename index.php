@@ -145,8 +145,8 @@ function invalidateCache($statsCacheFile, $globalIndexFile) {
     if (file_exists($globalIndexFile)) @unlink($globalIndexFile);
 }
 
-function getGlobalIndex($realBase, $globalIndexFile) {
-    if (file_exists($globalIndexFile)) {
+function getGlobalIndex($realBase, $globalIndexFile, $force = false) {
+    if (!$force && file_exists($globalIndexFile)) {
         $data = json_decode(file_get_contents($globalIndexFile), true);
         if (is_array($data)) return $data;
     }
@@ -425,6 +425,11 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         sendJsonResponse(['success' => true, 'token' => $token]);
     }
 
+    if (isset($_GET['action']) && $_GET['action'] === 'get_full_index') {
+        $allFiles = getGlobalIndex($adminRealBase, $globalIndexFile, true);
+        sendJsonResponse($allFiles);
+    }
+
     if (isset($_GET['storage'])) {
         $allFiles = getGlobalIndex($adminRealBase, $globalIndexFile);
         $filesOnly = array_filter($allFiles, function($f) { return !$f['isDir']; });
@@ -569,7 +574,7 @@ if (isset($_GET['download'])) {
 
 // ================= DATA GATHERING =================
 if (!$is_shared_view) {
-    getGlobalIndex($adminRealBase, $globalIndexFile);
+    getGlobalIndex($adminRealBase, $globalIndexFile, !$isAjax);
 }
 $allItems = [];
 if ($is_single_file_share) {
@@ -971,6 +976,7 @@ if ($isAjax) {
     window.fileIndex = [];
     
     window.onload = () => {
+        fetchFullIndex();
         if (!isSharedView || (isSharedView && allowUpload)) setupDragAndDrop();
         
         const params = new URLSearchParams(window.location.search);
