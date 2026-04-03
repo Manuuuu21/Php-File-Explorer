@@ -584,7 +584,7 @@ if ($is_single_file_share) {
     $allItems[] = [
         'name' => $f, 'path' => $item_path_for_js,
         'isDir' => false, 'mtime' => filemtime($fPath),
-        'mtime_f' => date("Y-m-d H:i", filemtime($fPath)),
+        'mtime_f' => date("m/d/Y, H:i", filemtime($fPath)),
         'size' => filesize($fPath),
         'size_f' => formatSize(filesize($fPath)),
         'type' => strtoupper(pathinfo($f, PATHINFO_EXTENSION))
@@ -648,7 +648,7 @@ foreach ($items as &$item) {
     if ($item['mtime'] === 0) $item['mtime'] = filemtime($fPath);
     if ($item['size'] === 0 && !$item['isDir']) $item['size'] = filesize($fPath);
     
-    $item['mtime_f'] = date("Y-m-d H:i", $item['mtime']);
+    $item['mtime_f'] = date("m/d/Y, H:i", $item['mtime']);
     $item['size_f'] = $item['isDir'] ? '--' : formatSize($item['size']);
 }
 unset($item);
@@ -807,17 +807,21 @@ if ($isAjax) {
             <?php if (!$is_shared_view || $allow_upload): ?><div class="drop-hint">🚀 Drop here to upload</div><?php endif; ?>
             
             <?php if (!$is_shared_view || $allow_upload): ?>
-            <div id="uploadStatusCard" class="upload-status-card">
-                <div class="upload-info">
-                    <div id="uploadCountBadge" style="font-weight: 500; font-size: 0.85rem;">Uploading...</div>
-                    <div class="upload-progress-container"><div id="uploadProgressBar"></div></div>
-                    <div id="progressInfo" style="font-size: 0.75rem; color: #666; display: flex; justify-content: space-between; white-space: nowrap; overflow: hidden;">
-                        <span id="uploadFileName" style="overflow: hidden; text-overflow: ellipsis; padding-right: 8px;">Waiting...</span>
-                        <span id="uploadSpeed">0 KB/s</span>
-                    </div>
-                    <div id="uploadSizeBadge" style="font-size: 0.7rem; color: #888; margin-top: 4px; font-weight: 500;">0 / 0</div>
+            <style>
+                .btn-abort:hover { background: #fff5f5 !important; border-color: #feb2b2 !important; }
+                #uploadFileList::-webkit-scrollbar { width: 6px; }
+                #uploadFileList::-webkit-scrollbar-track { background: #f7fafc; }
+                #uploadFileList::-webkit-scrollbar-thumb { background: #edf2f7; border-radius: 3px; }
+                #uploadFileList::-webkit-scrollbar-thumb:hover { background: #e2e8f0; }
+            </style>
+            <div id="uploadContainer" style="display: none; width: 450px; max-height: 500px; background: #fff; position: fixed; bottom: 20px; right: 25px; box-shadow: 0px 10px 30px rgba(0,0,0,0.15); z-index: 1000; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid #eee;">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid #f0f0f0;">
+                    <div id="uploadCountBadge" style="font-weight: 600; font-size: 1rem; color: #1a1a1a;">Uploading 0 items</div>
+                    <button style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #666; line-height: 1;" onclick="closeUploadContainer()">✕</button>
                 </div>
-                <button class="btn btn-outline" style="color: var(--danger); padding: 8px 12px; font-size: 0.75rem;" onclick="abortUpload()">Abort</button>
+                <div id="uploadFileList" style="flex-grow: 1; overflow-y: auto; padding: 0 20px;">
+                    <!-- Upload items will be injected here -->
+                </div>
             </div>
             <?php endif; ?>
 
@@ -825,7 +829,7 @@ if ($isAjax) {
                 <div class="table-header">
                     <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?><div style="text-align:center"><input type="checkbox" id="selectAll" onclick="toggleSelectAll(this)"></div><?php else: ?><div style="width:56px"></div><?php endif; ?>
                     <div style="cursor:pointer" onclick="changeSort('name')">Name</div>
-                    <div class="col-date" style="cursor:pointer" onclick="changeSort('mtime')">Modified</div>
+                    <div class="col-date" style="cursor:pointer" onclick="changeSort('mtime')">Date Modified</div>
                     <div class="col-type" style="cursor:pointer" onclick="changeSort('type')">Type</div>
                     <div class="col-size" style="cursor:pointer" onclick="changeSort('size')">Size</div>
                     <div style="text-align:right">Actions</div>

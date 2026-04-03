@@ -29,6 +29,11 @@ let currentPdfDoc = null;
 let currentPdfPage = 1;
 let isSlideshowActive = false;
 let slideshowTimer = null;
+let uploadQueue = [];
+let isUploadingNow = false;
+let uploadCounter = 0;
+let currentlyUploadingId = null;
+let sessionSuccessCount = 0;
 
 let storageLimit = `100 GB`; // This is only for txt display. Make sure it is sync in the php code storagelimit.
 
@@ -56,6 +61,16 @@ function formatBytes(bytes, decimals = 2) {
     if (bytes === 0) return '0 Bytes';
     const k = 1024, dm = decimals < 0 ? 0 : decimals, sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+function parseBytes(bytesString) {
+    const units = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const parts = bytesString.split(' ');
+    const value = parseFloat(parts[0]);
+    const unit = parts[1];
+    const index = units.indexOf(unit);
+    if (index === -1) return 0;
+    return value * Math.pow(1024, index);
 }
 
 // FIXED DOWNLOAD FUNCTION
@@ -657,7 +672,7 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true, f
 
         currentItems = filtered.map(item => ({
             ...item,
-            mtime_f: new Date(item.mtime * 1000).toISOString().replace('T', ' ').substring(0, 16),
+            mtime_f: new Date(item.mtime * 1000).toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
             size_f: item.isDir ? '--' : formatBytes(item.size)
         }));
 
@@ -770,7 +785,7 @@ function updateStats(stats) {
 }
 
 async function uploadItems(type) {
-    const input = type === 'folder' ? document.getElementById('folderInput') : document.getElementById('uploadInput');
+    const input = type === 'Folder' ? document.getElementById('folderInput') : document.getElementById('uploadInput');
     if (!input.files.length) return;
     const batch = Array.from(input.files).map(f => ({ file: f, relativePath: f.webkitRelativePath || "" }));
     processUploadBatch(batch);
@@ -778,12 +793,9 @@ async function uploadItems(type) {
 }
 
 async function processUploadBatch(batch) {
-    const card = document.getElementById('uploadStatusCard');
+    const container = document.getElementById('uploadContainer');
     const badge = document.getElementById('uploadCountBadge');
-    const bar = document.getElementById('uploadProgressBar');
-    const nameLabel = document.getElementById('uploadFileName');
-    const speedLabel = document.getElementById('uploadSpeed');
-    const sizeLabel = document.getElementById('uploadSizeBadge');
+    const fileList = document.getElementById('uploadFileList');
 
     const storageView = document.getElementById('storageView');
     const isStorageView = storageView && storageView.style.display === 'flex';
@@ -797,46 +809,110 @@ async function processUploadBatch(batch) {
         hideStorageView(true);
         currentDir = "";
         currentItems = [];
-        renderExplorer(true); // Show loading while we prepare the optimistic list
+        renderExplorer(true); 
     }
 
     // Optimistic: Add uploading items to the explorer
     const addedTopLevels = new Set();
     batch.forEach(item => {
+        item.uploadId = uploadCounter++;
         let targetName = item.file.name;
         let isDir = false;
-
         if (item.relativePath && item.relativePath.includes('/')) {
             targetName = item.relativePath.split('/')[0];
             isDir = true;
         }
-
         if (addedTopLevels.has(targetName)) return;
         addedTopLevels.add(targetName);
-
-        // Check if already exists to avoid duplicates
         if (!currentItems.find(i => i.name === targetName)) {
             currentItems.unshift({
                 name: targetName,
                 path: (isStorageView ? "" : currentDir) + ((isStorageView ? "" : currentDir) ? '/' : '') + targetName,
                 isDir: isDir,
-                size_f: isDir ? '-' : formatBytes(item.file.size),
-                type: isDir ? 'folder' : (item.file.name.split('.').pop() || 'file'),
-                mtime_f: 'Just now',
+                size_f: isDir ? '--' : formatBytes(item.file.size),
+                type: isDir ? 'Folder' : (item.file.name.split('.').pop().toUpperCase() || 'file'),
+                mtime_f: new Date().toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
                 isUploading: true,
-                progress: 0
+                progress: 0,
+                uploadId: item.uploadId
             });
             totalItems++;
         }
     });
     renderExplorer();
 
-    card.style.display = 'flex';
+    // Show container and populate list
+    if (container.style.display !== 'flex') {
+        container.style.display = 'flex';
+        if (!isUploadingNow) {
+            fileList.innerHTML = '';
+            // uploadCounter = 0; // Don't reset this!
+            sessionSuccessCount = 0;
+        }
+    }
+    
+    batch.forEach((item) => {
+        const id = item.uploadId;
+        const fileName = item.relativePath || item.file.name;
+        const itemDiv = document.createElement('div');
+        itemDiv.id = `upload-item-${id}`;
+        itemDiv.style = 'padding: 15px 0; border-bottom: 1px solid #f9f9f9;';
+        itemDiv.innerHTML = `
+            <div id="progress-container-${id}" style="height: 3px; background: #f0f0f0; border-radius: 2px; margin-bottom: 10px; overflow: hidden;">
+                <div id="bar-${id}" style="height: 100%; background: #4c51bf; width: 0%; transition: width 0.2s;"></div>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="flex-grow: 1; min-width: 0;">
+                    <div style="font-size: 0.9rem; font-weight: 500; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
+                    <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">
+                        <span id="size-${id}">0 / ${formatBytes(item.file.size)}</span>
+                    </div>
+                </div>
+                <div style="text-align: right; margin-left: 15px; flex-shrink: 0;">
+                    <div id="speed-${id}" style="font-size: 0.85rem; color: #666;">Queued</div>
+                    <button id="abort-${id}" class="btn-abort" onclick="abortUpload(${id})" style="margin-top: 5px; background: #fff; border: 1px solid #eee; color: #e53e3e; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; cursor: pointer; transition: all 0.2s;">Abort</button>
+                </div>
+            </div>
+        `;
+        fileList.appendChild(itemDiv);
+        uploadQueue.push(item);
+    });
+
+    if (!isUploadingNow) {
+        runUploadQueue();
+    }
+}
+
+async function runUploadQueue() {
+    if (isUploadingNow) return;
+    isUploadingNow = true;
+    isAborting = false;
+    
+    const badge = document.getElementById('uploadCountBadge');
+    const storageView = document.getElementById('storageView');
+    const isStorageView = storageView && storageView.style.display === 'flex';
     
     let failed = false;
-    for (let i = 0; i < batch.length; i++) {
-        const item = batch[i];
+    let sessionBytesUploaded = 0;
+    
+    while (uploadQueue.length > 0) {
+        if (isAborting) {
+            failed = true;
+            break;
+        }
+        
+        const item = uploadQueue.shift();
+        sessionBytesUploaded += item.file.size;
+        const id = item.uploadId;
+        currentlyUploadingId = id;
         const fileName = item.relativePath || item.file.name;
+        
+        badge.innerText = `Uploading ${uploadQueue.length + 1} items...`;
+        
+        const bar = document.getElementById(`bar-${id}`);
+        const sizeLabel = document.getElementById(`size-${id}`);
+        const speedLabel = document.getElementById(`speed-${id}`);
+        
         const formData = new FormData();
         formData.append('upload[]', item.file);
         if (item.relativePath) formData.append('relativePath', item.relativePath);
@@ -846,43 +922,14 @@ async function processUploadBatch(batch) {
         currentXhr = xhr;
 
         const uploadPromise = new Promise((resolve, reject) => {
-            badge.innerText = `Uploading ${i + 1} of ${batch.length}`;
-            nameLabel.innerText = item.file.name;
-            
             xhr.upload.onprogress = e => {
                 if (e.lengthComputable) {
                     const percent = Math.round((e.loaded / e.total) * 100);
                     const elapsed = (Date.now() - startTime) / 1000;
                     const speed = elapsed > 0 ? e.loaded / elapsed : 0;
-                    bar.style.width = percent + '%';
-                    
-                    // Update individual item progress in UI (Direct DOM update for speed)
-                    let targetProgressName = item.file.name;
-                    if (item.relativePath && item.relativePath.includes('/')) {
-                        targetProgressName = item.relativePath.split('/')[0];
-                    }
-
-                    const uploadingItem = currentItems.find(it => it.name === targetProgressName && it.isUploading);
-                    if (uploadingItem) {
-                        uploadingItem.progress = percent;
-                        const progressSpan = document.querySelector(`[data-upload-progress="${escapeHtml(targetProgressName)}"]`);
-                        if (progressSpan) {
-                            if (item.relativePath && item.relativePath.includes('/')) {
-                                progressSpan.innerText = `Uploading...`;
-                            } else {
-                                progressSpan.innerText = `Uploading... ${percent}%`;
-                            }
-                        }
-                    }
-
-                    if (percent >= 100) {
-                        nameLabel.innerText = `${item.file.name} (Finalizing...)`;
-                        speedLabel.innerText = "Processing...";
-                    } else {
-                        nameLabel.innerText = item.file.name;
-                        speedLabel.innerText = formatBytes(speed) + '/s';
-                    }
-                    sizeLabel.innerText = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
+                    if (bar) bar.style.width = percent + '%';
+                    if (sizeLabel) sizeLabel.innerText = `${formatBytes(e.loaded)} / ${formatBytes(e.total)}`;
+                    if (speedLabel) speedLabel.innerText = formatBytes(speed) + '/s';
                 }
             };
             xhr.onreadystatechange = () => { if (xhr.readyState === 4) { if (xhr.status === 200) resolve(); else reject(); } };
@@ -896,19 +943,37 @@ async function processUploadBatch(batch) {
             xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
             xhr.send(formData);
         });
+
         try { 
             await uploadPromise; 
-            // Individual item upload finished, but we keep isUploading=true until the whole batch is done
+            sessionSuccessCount++;
+            if (speedLabel) {
+                speedLabel.innerText = 'Done';
+                speedLabel.style.color = '#38a169';
+            }
+            
+            // Hide progress bar and abort button on success
+            const progressContainer = document.getElementById(`progress-container-${id}`);
+            const abortBtn = document.getElementById(`abort-${id}`);
+            if (progressContainer) progressContainer.style.display = 'none';
+            if (abortBtn) abortBtn.style.display = 'none';
         } catch (e) { 
             console.error('Upload failed for:', fileName, e);
+            if (speedLabel) {
+                speedLabel.innerText = 'Failed';
+                speedLabel.style.color = '#e53e3e';
+            }
             failed = true;
-            break; // Stop the batch on any failure
+        } finally {
+            currentlyUploadingId = null;
         }
     }
-    card.style.display = 'none';
+    
+    isUploadingNow = false;
     currentXhr = null;
+    badge.innerText = isAborting ? 'Upload cancelled' : (failed ? 'Upload completed with errors' : `${sessionSuccessCount} files uploaded successfully`);
 
-    // Cleanup uploading status
+    // Cleanup uploading status in explorer
     currentItems.forEach(item => {
         if (item.isUploading) {
             item.isUploading = false;
@@ -917,16 +982,44 @@ async function processUploadBatch(batch) {
     });
     sortItemsLocally();
     renderExplorer();
-
-    if (!failed) {
-        showSnackbar(`${batch.length} file(s) uploaded successfully.`);
+    
+    // Refresh explorer and stats instantly
+    if (sessionSuccessCount > 0) {
+        const totalFilesEl = document.getElementById('statTotalFiles');
+        const statUsedTextEl = document.getElementById('statUsedText');
+        const statPercentEl = document.getElementById('statPercent');
+        const statBarEl = document.getElementById('statBar');
+        
+        if (totalFilesEl) {
+            const match = totalFilesEl.innerText.match(/Total Files: (\d+)/);
+            if (match) totalFilesEl.innerText = `Total Files: ${parseInt(match[1], 10) + sessionSuccessCount}`;
+        }
+        
+        if (statUsedTextEl) {
+            const parts = statUsedTextEl.innerText.split(' / ');
+            if (parts.length === 2) {
+                const currentUsedBytes = parseBytes(parts[0]);
+                const totalCapacityBytes = parseBytes(parts[1]);
+                const newUsedBytes = currentUsedBytes + sessionBytesUploaded;
+                
+                statUsedTextEl.innerText = `${formatBytes(newUsedBytes)} / ${parts[1]}`;
+                
+                const newPercent = Math.round((newUsedBytes / totalCapacityBytes) * 100);
+                if (statPercentEl) statPercentEl.innerText = `${newPercent}%`;
+                if (statBarEl) {
+                    statBarEl.style.width = `${newPercent}%`;
+                    statBarEl.className = 'progress-fill ' + (newPercent > 90 ? 'critical' : (newPercent > 75 ? 'warning' : ''));
+                }
+            }
+        }
     }
+    
+    // Refresh full index (updates .index.json on server)
+    fetchFullIndex();
+}
 
-    if (isStorageView) {
-        fetchExplorer('', '', 1, true, true);
-    } else {
-        fetchExplorer(currentDir, currentSearch, currentPage, true, true);
-    }
+function closeUploadContainer() {
+    document.getElementById('uploadContainer').style.display = 'none';
 }
 
 function setupDragAndDrop() {
@@ -1690,7 +1783,61 @@ function handleSearchKeyUp(e) {
     } 
 }
 function clearSearch() { const myFilesBtn = document.getElementById('myFilesBtn'); if (myFilesBtn) myFilesBtn.style.background = "#eee"; document.getElementById('searchInput').value = ''; fetchExplorer(currentDir, '', 1); }
-async function abortUpload() { if(currentXhr) { currentXhr.abort(); currentXhr = null; } document.getElementById('uploadStatusCard').style.display = 'none'; await fetchExplorer(currentDir, currentSearch, currentPage, true, true); showSnackbar("Upload cancelled."); }
+let isAborting = false;
+
+async function abortUpload(id = null) { 
+    if (id !== null) {
+        // Abort specific file
+        if (id === currentlyUploadingId) {
+            if (currentXhr) {
+                currentXhr.abort();
+                
+                // Remove from explorer table
+                const itemIndex = currentItems.findIndex(i => i.uploadId === id);
+                if (itemIndex !== -1) {
+                    currentItems.splice(itemIndex, 1);
+                    renderExplorer();
+                }
+            }
+        } else {
+            // Remove from queue
+            const index = uploadQueue.findIndex(item => item.uploadId === id);
+            if (index !== -1) {
+                uploadQueue.splice(index, 1);
+                
+                // Update UI for the queued item
+                const speedLabel = document.getElementById(`speed-${id}`);
+                const abortBtn = document.getElementById(`abort-${id}`);
+                const progressContainer = document.getElementById(`progress-container-${id}`);
+                
+                if (speedLabel) {
+                    speedLabel.innerText = 'Cancelled';
+                    speedLabel.style.color = '#e53e3e';
+                }
+                if (abortBtn) abortBtn.style.display = 'none';
+                if (progressContainer) progressContainer.style.display = 'none';
+                
+                // Remove from explorer table
+                const itemIndex = currentItems.findIndex(i => i.uploadId === id);
+                if (itemIndex !== -1) {
+                    currentItems.splice(itemIndex, 1);
+                    renderExplorer();
+                }
+            }
+        }
+        return;
+    }
+
+    // Original "Abort All" behavior
+    isAborting = true;
+    uploadQueue = [];
+    if(currentXhr) { 
+        currentXhr.abort(); 
+        currentXhr = null; 
+    } 
+    await fetchExplorer(currentDir, currentSearch, currentPage, true, true); 
+    showSnackbar("Upload cancelled."); 
+}
 
 function submitBulkDelete() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
