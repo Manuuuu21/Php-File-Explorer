@@ -785,6 +785,16 @@ input[type="checkbox"] {
 .breadcrumb-more-btn { cursor: pointer; padding: 6px 10px; border-radius: 8px; }
 .breadcrumb-more-btn:hover { background: rgba(0,0,0,0.05); }
 
+.breadcrumb-link {
+    color: none;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.breadcrumb-link:hover {
+    text-decoration: underline;
+}
+
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 1000; }
 
 .mobile-bulk-actions { display: none; }

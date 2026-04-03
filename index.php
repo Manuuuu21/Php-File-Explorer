@@ -484,7 +484,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
 
 
     if (!empty($_POST['newfolder'])) {
-        $name = preg_replace('/[^a-zA-Z0-9\s_-]/', '', $_POST['newfolder']);
+        $name = preg_replace('/[^a-zA-Z0-9\s._-]/', '', $_POST['newfolder']);
         $success = false;
         if (trim($name)) {
             $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . trim($name);
@@ -905,7 +905,10 @@ if ($isAjax) {
             <div class="modal-body" style="margin-bottom: 0;">
                 <div class="move-modal-table">
                     <div class="move-modal-header">
-                        <div style="padding-left: 64px;">Name</div>
+                        <div id="moveModalBreadcrumb"></div>
+                    </div>
+                    <div class="move-modal-header">
+                        <div style="padding-left: 42px;">Name</div>
                     </div>
                     <div id="moveModalList" class="move-modal-list">
                         <!-- Folders will be loaded here -->

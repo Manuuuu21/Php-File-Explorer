@@ -862,6 +862,7 @@ async function processUploadBatch(batch) {
                 <div id="bar-${id}" style="height: 100%; background: #4c51bf; width: 0%; transition: width 0.2s;"></div>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                <div style="margin-right: 10px; flex-shrink: 0;">${getFileIcon({ name: item.file.name, isDir: false })}</div>
                 <div style="flex-grow: 1; min-width: 0;">
                     <div style="font-size: 0.9rem; font-weight: 500; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
                     <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">
@@ -1737,8 +1738,8 @@ async function submitNewFolder() {
         name: n,
         path: currentDir + (currentDir ? '/' : '') + n,
         isDir: true,
-        size_f: '-',
-        type: 'folder',
+        size_f: '--',
+        type: 'Folder',
         mtime_f: 'Just now',
         isCreating: true
     };
@@ -2095,7 +2096,7 @@ async function renderMoveModal() {
              data-path=""
              onclick="event.stopPropagation(); moveModalSelect('')"
              ondblclick="event.stopPropagation(); moveModalNavigate('')">
-            <div class="folder-icon">🏠</div>
+            <div class="folder-icon"><img src="img-icon/file-icon/house.png" style="width:24px; height:24px; vertical-align:middle;" referrerpolicy="no-referrer"></div>
             <div style="font-weight: 500;">/Root</div>
         </div>
     `;
@@ -2119,7 +2120,7 @@ async function renderMoveModal() {
                  data-path="${escapeHtml(f.path)}"
                  onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
                  ${isDir ? `ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')"` : ''}>
-                <div class="folder-icon">${getFileIcon(f)}</div>
+                <div class="folder-icon" style='${isDir ? '' : 'opacity: 0.5;'}'>${getFileIcon(f)}</div>
                 <div style="font-weight: 500; ${isDir ? '' : 'color: silver;'}">${escapeHtml(f.name)}</div>
             </div>
         `;
@@ -2130,6 +2131,29 @@ async function renderMoveModal() {
     }
     
     list.innerHTML = html;
+    
+    // Update breadcrumb
+    const breadcrumb = document.getElementById('moveModalBreadcrumb');
+    if (breadcrumb) {
+        let breadcrumbHtml = `<span class="breadcrumb-link" onclick="moveModalNavigate('')">Root</span> / `;
+        if (moveModalDir !== "") {
+            const parts = moveModalDir.split('/');
+            let path = "";
+            parts.forEach((part, index) => {
+                path += (index > 0 ? '/' : '') + part;
+                const p = path;
+                breadcrumbHtml += `<span class="breadcrumb-link" onclick="moveModalNavigate('${escapeJs(p)}')">${escapeHtml(part)}</span> / `;
+            });
+        }
+        breadcrumb.innerHTML = breadcrumbHtml;
+    }
+    
+    // Set initial button state
+    const btn = document.getElementById('moveModalConfirmBtn');
+    if (btn) {
+        const isDir = moveModalSelectedPath === '' || (fullIndex.find(f => f.path === moveModalSelectedPath)?.isDir);
+        btn.disabled = !isDir;
+    }
 }
 
 function moveModalNavigate(path) {
@@ -2140,6 +2164,15 @@ function moveModalNavigate(path) {
 
 function moveModalSelect(path) {
     moveModalSelectedPath = path;
+    
+    // Find the item in fullIndex to check if it's a directory
+    // Root is path === ''
+    const isDir = path === '' || (fullIndex.find(f => f.path === path)?.isDir);
+    
+    const btn = document.getElementById('moveModalConfirmBtn');
+    if (btn) {
+        btn.disabled = !isDir;
+    }
     
     const items = document.querySelectorAll('.move-modal-item');
     items.forEach(item => {
