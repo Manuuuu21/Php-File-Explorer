@@ -2044,12 +2044,22 @@ async function movePrompt() {
                 const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
                 if(result.error) {
                     uiAlert(`Move failed: ${result.error}`);
+                    movingItems.forEach(path => {
+                        const item = currentItems.find(i => i.path === path);
+                        if (item) item.isMoving = false;
+                    });
+                    renderExplorer();
                 } else {
                     await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
                     showSnackbar(`Moved ${movingItems.length} item(s) successfully.`);
                 }
             } catch(e) { 
                 uiAlert("An error occurred during the move operation."); 
+                movingItems.forEach(path => {
+                    const item = currentItems.find(i => i.path === path);
+                    if (item) item.isMoving = false;
+                });
+                renderExplorer();
                 await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
             }
             // finally { closeModal('moveModal'); }
@@ -2061,60 +2071,65 @@ async function movePrompt() {
 async function renderMoveModal() {
     const list = document.getElementById('moveModalList');
     
-    try {
-        const response = await fetch(`?dir=${encodeURIComponent(moveModalDir)}&ajax=1`);
-        const data = await response.json();
-        const items = data.items;
-        
-        let html = "";
-        
-        // Root folder option
-        const isRootSelected = moveModalSelectedPath === '';
+    // Use fullIndex instead of fetch
+    // Ensure fullIndex is populated
+    if (!fullIndex || fullIndex.length === 0) {
+        await fetchFullIndex();
+    }
+    
+    const items = fullIndex.filter(f => {
+        const parent = f.path.split('/').slice(0, -1).join('/');
+        return parent === moveModalDir;
+    }).sort((a, b) => {
+        if (a.isDir && !b.isDir) return -1;
+        if (!a.isDir && b.isDir) return 1;
+        return a.name.localeCompare(b.name);
+    });
+    
+    let html = "";
+    
+    // Root folder option
+    const isRootSelected = moveModalSelectedPath === '';
+    html += `
+        <div class="move-modal-item ${isRootSelected ? 'selected' : ''}" 
+             data-path=""
+             onclick="event.stopPropagation(); moveModalSelect('')"
+             ondblclick="event.stopPropagation(); moveModalNavigate('')">
+            <div class="folder-icon">🏠</div>
+            <div style="font-weight: 500;">/Root</div>
+        </div>
+    `;
+
+    // Go up option
+    if (moveModalDir !== "") {
+        const parent = moveModalDir.split('/').slice(0, -1).join('/');
         html += `
-            <div class="move-modal-item ${isRootSelected ? 'selected' : ''}" 
-                 data-path=""
-                 onclick="event.stopPropagation(); moveModalSelect('')"
-                 ondblclick="event.stopPropagation(); moveModalNavigate('')">
-                <div class="folder-icon">🏠</div>
-                <div style="font-weight: 500;">/Root</div>
+            <div class="move-modal-item" onclick="event.stopPropagation(); moveModalNavigate('${escapeJs(parent)}')">
+                <div class="up-icon"><img src="img-icon/file-icon/back.png" style="width:24px; height:24px; vertical-align:middle;" referrerpolicy="no-referrer"></div>
+                <div style="font-weight: 500;">..</div>
             </div>
         `;
-
-        // Go up option
-        if (moveModalDir !== "") {
-            const parent = moveModalDir.split('/').slice(0, -1).join('/');
-            html += `
-                <div class="move-modal-item" onclick="event.stopPropagation(); moveModalNavigate('${escapeJs(parent)}')">
-                    <div class="up-icon">⤴</div>
-                    <div style="font-weight: 500;">..</div>
-                </div>
-            `;
-        }
-        
-        items.forEach(f => {
-            const isSelected = moveModalSelectedPath === f.path;
-            const isDir = f.isDir;
-            html += `
-                <div class="move-modal-item ${isSelected ? 'selected' : ''}" 
-                     data-path="${escapeHtml(f.path)}"
-                     onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
-                     ${isDir ? `ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')"` : ''}>
-                    <div class="folder-icon">${getFileIcon(f)}</div>
-                    <div style="font-weight: 500; ${isDir ? '' : 'color: silver;'}">${escapeHtml(f.name)}</div>
-                </div>
-            `;
-        });
-        
-        if (html === "" && moveModalDir === "") {
-            html = `<div style="padding:20px; text-align:center; color:#999;">No folders found in root.</div>`;
-        }
-        
-        list.innerHTML = html;
-        
-    } catch (e) {
-        console.error(e);
-        list.innerHTML = `<div style="padding:20px; text-align:center; color:red;">Failed to load folders.</div>`;
     }
+    
+    items.forEach(f => {
+        const isSelected = moveModalSelectedPath === f.path;
+        const isDir = f.isDir;
+        html += `
+            <div class="move-modal-item ${isSelected ? 'selected' : ''}" 
+                 data-path="${escapeHtml(f.path)}"
+                 onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
+                 ${isDir ? `ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')"` : ''}>
+                <div class="folder-icon">${getFileIcon(f)}</div>
+                <div style="font-weight: 500; ${isDir ? '' : 'color: silver;'}">${escapeHtml(f.name)}</div>
+            </div>
+        `;
+    });
+    
+    if (html === "" && moveModalDir === "") {
+        html = `<div style="padding:20px; text-align:center; color:#999;">No folders found in root.</div>`;
+    }
+    
+    list.innerHTML = html;
 }
 
 function moveModalNavigate(path) {
@@ -2135,6 +2150,10 @@ function moveModalSelect(path) {
         }
     });
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    fetchFullIndex();
+});
 
 async function fetchFullIndex() {
     if (isSharedView) return;
