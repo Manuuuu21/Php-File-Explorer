@@ -462,7 +462,7 @@ function renderExplorer(loading = false) {
         let actions = (isSharedView && !allowUpload) || isUploading ? downloadBtn : `${downloadBtn} <span class="action-icon delete-btn" onclick="event.stopPropagation(); deleteItem('${escapeJs(f.path)}', '${escapeJs(f.name)}')" title="Delete"> <img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> </span>`;
 
         let rowStyle = isUploading ? 'opacity: 0.6; pointer-events: none;' : '';
-        let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading... ${f.progress || 0}%</span>` : 
+        let nameContent = f.isUploading ? `<strong>${escapeHtml(f.name)}</strong> <span data-upload-progress="${escapeHtml(f.name)}" style="font-size:0.7rem; color:var(--primary);">Uploading...</span>` : 
                           f.isCreating ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Creating folder...</span>` :
                           f.isMoving ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Moving...</span>` :
                           f.isCopying ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Copying...</span>` :
@@ -973,16 +973,6 @@ async function runUploadQueue() {
     currentXhr = null;
     badge.innerText = isAborting ? 'Upload cancelled' : (failed ? 'Upload completed with errors' : `${sessionSuccessCount} files uploaded successfully`);
 
-    // Cleanup uploading status in explorer
-    currentItems.forEach(item => {
-        if (item.isUploading) {
-            item.isUploading = false;
-            item.progress = 100;
-        }
-    });
-    sortItemsLocally();
-    renderExplorer();
-    
     // Refresh explorer and stats instantly
     if (sessionSuccessCount > 0) {
         const totalFilesEl = document.getElementById('statTotalFiles');
@@ -1015,7 +1005,17 @@ async function runUploadQueue() {
     }
     
     // Refresh full index (updates .index.json on server)
-    fetchFullIndex();
+    await fetchFullIndex();
+    
+    // Cleanup uploading status in explorer
+    currentItems.forEach(item => {
+        if (item.isUploading) {
+            item.isUploading = false;
+            item.progress = 100;
+        }
+    });
+    sortItemsLocally();
+    renderExplorer();
 }
 
 function closeUploadContainer() {
