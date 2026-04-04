@@ -300,6 +300,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
             if ($file && $file !== $realBase) recursiveDelete($file);
         }
         invalidateCache($cacheFile, $globalIndexFile);
+        getGlobalIndex($adminRealBase, $globalIndexFile, true);
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
         exit;
@@ -321,7 +322,10 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
                     }
                 }
             }
-            if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
+            if ($successCount > 0) {
+                invalidateCache($cacheFile, $globalIndexFile);
+                getGlobalIndex($adminRealBase, $globalIndexFile, true);
+            }
         } else {
             $error = "Invalid target directory.";
         }
@@ -507,7 +511,10 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
     if (isset($_GET['delete'])) {
         $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['delete'], $realBase);
         if ($file && $file !== $realBase) {
-            if (recursiveDelete($file)) invalidateCache($cacheFile, $globalIndexFile);
+            if (recursiveDelete($file)) {
+                invalidateCache($cacheFile, $globalIndexFile);
+                getGlobalIndex($adminRealBase, $globalIndexFile, true);
+            }
         }
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
@@ -517,7 +524,10 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $old = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['rename_old'], $realBase);
         $newName = basename($_POST['rename_new']);
         if ($old && $old !== $realBase && !empty($newName)) {
-            if (rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName)) invalidateCache($cacheFile, $globalIndexFile);
+            if (rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName)) {
+                invalidateCache($cacheFile, $globalIndexFile);
+                getGlobalIndex($adminRealBase, $globalIndexFile, true);
+            }
         }
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;
@@ -527,7 +537,12 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $targetDir = safePath($realBase . DIRECTORY_SEPARATOR . $_POST['move_target'], $realBase);
         if ($file && $targetDir && is_dir($targetDir)) {
             if (is_dir($file) && ($file === $targetDir || strpos($targetDir, $file . DIRECTORY_SEPARATOR) === 0)) {}
-            else { if (rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file))) invalidateCache($cacheFile, $globalIndexFile); }
+            else { 
+                if (rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file))) {
+                    invalidateCache($cacheFile, $globalIndexFile);
+                    getGlobalIndex($adminRealBase, $globalIndexFile, true);
+                }
+            }
         }
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir)); exit;

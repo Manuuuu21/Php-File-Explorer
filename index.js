@@ -1250,6 +1250,10 @@ function closeModal(id) {
 
 function deleteItem(path, name) { 
     uiConfirm(`Delete "${name}"?`, async () => { 
+        // Hide bulk actions bar
+        const bulkActions = document.getElementById('bulkActions');
+        if (bulkActions) bulkActions.style.display = 'none';
+
         // Optimistic UI: Mark as deleting
         const item = currentItems.find(i => i.path === path);
         if (item) {
@@ -1270,6 +1274,8 @@ function deleteItem(path, name) {
         } catch (e) {
             uiAlert(`Failed to delete "${name}".`);
             await fetchExplorer(currentDir, currentSearch, currentPage, true, true); // Restore list
+        } finally {
+            updateBulkBtn();
         }
     }); 
 }
@@ -2001,6 +2007,10 @@ function submitBulkDelete() {
         });
         renderExplorer();
         
+        // Hide bulk actions bar
+        const bulkActions = document.getElementById('bulkActions');
+        if (bulkActions) bulkActions.style.display = 'none';
+
         const fd = new FormData(); 
         fd.append('bulk_delete', '1'); 
         checked.forEach(v => fd.append('selected_items[]', v));
@@ -2014,11 +2024,25 @@ function submitBulkDelete() {
             const res = await fetch(url, {method:'POST', body:fd});
             const resJson = await res.json();
             if (!res.ok) throw new Error("Bulk delete failed");
-            await fetchExplorer(currentDir, currentSearch, currentPage, false, true);
+            
+            // Remove from local state
+            currentItems = currentItems.filter(i => !checked.includes(i.path));
+            if (fullIndex) {
+                fullIndex = fullIndex.filter(i => !checked.includes(i.path));
+            }
+            renderExplorer();
             showSnackbar(`${checked.length} items deleted.`);
         } catch (e) {
             uiAlert("Failed to delete some items.");
-            await fetchExplorer(currentDir, currentSearch, currentPage, true, true); // Restore list
+            // Restore item status
+            currentItems.forEach(item => {
+                if (checked.includes(item.path)) {
+                    item.isDeleting = false;
+                }
+            });
+            renderExplorer();
+        } finally {
+            updateBulkBtn();
         }
     });
 }
