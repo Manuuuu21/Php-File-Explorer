@@ -34,6 +34,7 @@ let isUploadingNow = false;
 let uploadCounter = 0;
 let currentlyUploadingId = null;
 let sessionSuccessCount = 0;
+let activeUploads = []; // Persistent uploading items for the explorer
 
 let storageLimit = `100 GB`; // This is only for txt display. Make sure it is sync in the php code storagelimit.
 
@@ -48,7 +49,12 @@ const FILE_TYPE_ICONS = {
     'ppt': 'img-icon/file-icon/ppt.png',
     'pptx': 'img-icon/file-icon/ppt.png',
     'xls': 'img-icon/file-icon/xls.png',
-    'xlsx': 'img-icon/file-icon/xls.png'
+    'xlsx': 'img-icon/file-icon/xls.png',
+    'html': 'img-icon/file-icon/html-file.png',
+    'htm': 'img-icon/file-icon/html-file.png',
+    'css': 'img-icon/file-icon/css-file.png',
+    'js': 'img-icon/file-icon/js-file.png',
+    'php': 'img-icon/file-icon/php-file.png',
 };
 
 // --- HELPERS ---
@@ -329,6 +335,31 @@ function toggleBreadcrumbDropdown(btn) {
     content.classList.toggle('show');
 }
 
+function makeCopy() {
+    if (isSharedView || document.querySelector('.modal.active')) return;
+    const selected = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked')).map(c => c.value);
+    if (selected.length > 0) {
+        clipboardItems = selected;
+        clipboardSourceDir = currentDir;
+        clipboardAction = "copy";
+        renderExplorer();
+        showSnackbar(`Copying ${selected.length} files`, { actionText: '', actionUrl: '#' });
+    } else if (activePaths.length > 0) {
+        clipboardItems = [...activePaths];
+        clipboardSourceDir = currentDir;
+        clipboardAction = "copy";
+        renderExplorer();
+        showSnackbar(`Copying ${selected.length} files`, { actionText: '', actionUrl: '#' });
+    }
+
+    if (isSharedView || clipboardItems.length === 0 || document.querySelector('.modal.active')) return;
+    pasteItems();
+
+    document.getElementById("desktop-breadcrumb-dropdown-content").classList.remove("show");
+    document.getElementById("mobile-breadcrumb-dropdown-content").classList.remove("show");
+
+}
+
 document.addEventListener('click', function(event) {
     const dropdowns = document.querySelectorAll('.breadcrumb-dropdown-content');
     const target = event.target;
@@ -361,10 +392,18 @@ function getFileIcon(item) {
 }
 
 function renderExplorer(loading = false) {
+    let items = [...currentItems];
+    
+    // Merge active uploads if they are in the current directory and not already in the list
+    activeUploads.forEach(up => {
+        if (up.targetDir === currentDir && !items.find(i => i.name === up.name)) {
+            items.unshift(up);
+        }
+    });
+
     const list = document.getElementById('fileListContent');
     const bc = document.getElementById('breadcrumbTrail');
     const counter = document.getElementById('itemCounter');
-    const items = currentItems;
 
     let bcHtml = '';
     const isMobile = window.innerWidth <= 768;
@@ -454,7 +493,7 @@ function renderExplorer(loading = false) {
 
         const isCut = clipboardAction === 'cut' && clipboardItems.includes(f.path);
         const isActive = activePaths.includes(f.path);
-        const isUploading = f.isUploading || f.isCreating || f.isMoving || f.isCopying || f.isDeleting;
+        const isUploading = f.isUploading || f.isCreating || f.isMoving || f.isCopying || f.isDeleting || f.isRenaming;
         
         let downloadBtn = (!f.isDir && !isUploading) ? `<span class="action-icon download-btn" onclick="event.stopPropagation(); downloadFile('${escapeJs(f.path)}')" title="Download"> <img src="img-icon/file-icon/download.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> </span>` : '';
         let contextMenu = (isSharedView || isUploading) ? '' : `oncontextmenu="handleContextMenu(event, this)"`;
@@ -467,6 +506,7 @@ function renderExplorer(loading = false) {
                           f.isMoving ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Moving...</span>` :
                           f.isCopying ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Copying...</span>` :
                           f.isDeleting ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Deleting...</span>` :
+                          f.isRenaming ? `<strong>${escapeHtml(f.name)}</strong> <span style="font-size:0.7rem; color:var(--primary);">Renaming...</span>` :
                           `<strong style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(f.name)}</strong>`;
 
         html += `
@@ -588,7 +628,7 @@ function showSnackbar(message, options = {}) {
 }
 
 async function pasteItems() {
-    const transferSnackbar = showSnackbar('Transferring...', { persistent: true });
+    // const transferSnackbar = showSnackbar('Transferring...', { persistent: true });
     
     const fd = new FormData();
     if (clipboardAction === 'cut') {
@@ -613,13 +653,13 @@ async function pasteItems() {
                 itemInView.isMoving = true;
             } else {
                 // Copying (from anywhere) or Moving from another folder: create a new optimistic row
-                const optimisticName = clipboardAction === 'copy' ? `${name} (copy)` : name;
+                const optimisticName = clipboardAction === 'copy' ? `Copy of ${name}` : name;
                 const optimisticItem = {
                     name: optimisticName,
                     path: 'optimistic_' + Math.random(), // Temporary unique path to avoid collisions
                     isDir: itemInView ? itemInView.isDir : (path.endsWith('/') || name.indexOf('.') === -1), // Heuristic for dir
                     size_f: '-',
-                    type: itemInView ? itemInView.type : 'item',
+                    type: itemInView ? itemInView.type : 'Item',
                     mtime_f: 'Just now',
                     isMoving: clipboardAction === 'cut',
                     isCopying: clipboardAction === 'copy'
@@ -630,7 +670,7 @@ async function pasteItems() {
         renderExplorer();
         const result = await (await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, { method:'POST', body:fd })).json();
         
-        transferSnackbar.close();
+        //transferSnackbar.close();
 
         if(result.error) {
             uiAlert(`Paste failed: ${result.error}`);
@@ -644,7 +684,7 @@ async function pasteItems() {
             showSnackbar(`${count} files have been ${actionText} from ${sourceFolder} to "${destFolder}"`, { actionText: '' });
         }
     } catch(e) { 
-        transferSnackbar.close();
+        //transferSnackbar.close();
         uiAlert("An error occurred during the paste operation."); 
         await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
     }
@@ -785,14 +825,31 @@ function updateStats(stats) {
 }
 
 async function uploadItems(type) {
-    const input = type === 'Folder' ? document.getElementById('folderInput') : document.getElementById('uploadInput');
+    const input = (type === 'Folder' || type === 'folder') ? document.getElementById('folderInput') : document.getElementById('uploadInput');
     if (!input.files.length) return;
-    const batch = Array.from(input.files).map(f => ({ file: f, relativePath: f.webkitRelativePath || "" }));
-    processUploadBatch(batch);
+    const files = Array.from(input.files).map(f => ({ file: f, relativePath: f.webkitRelativePath || "" }));
+    
+    let directories = [];
+    if (type === 'Folder' || type === 'folder') {
+        const paths = new Set();
+        files.forEach(f => {
+            if (f.relativePath && f.relativePath.includes('/')) {
+                const parts = f.relativePath.split('/');
+                let current = "";
+                for (let i = 0; i < parts.length - 1; i++) {
+                    current += (current ? '/' : '') + parts[i];
+                    paths.add(current);
+                }
+            }
+        });
+        directories = Array.from(paths);
+    }
+    
+    processUploadBatch(files, directories);
     input.value = '';
 }
 
-async function processUploadBatch(batch) {
+async function processUploadBatch(files, directories = []) {
     const container = document.getElementById('uploadContainer');
     const badge = document.getElementById('uploadCountBadge');
     const fileList = document.getElementById('uploadFileList');
@@ -812,30 +869,54 @@ async function processUploadBatch(batch) {
         renderExplorer(true); 
     }
 
+    const targetDir = isStorageView ? "" : currentDir;
+
+    const batch = [];
+    // Add directories to the batch
+    for (const dirPath of directories) {
+        batch.push({ isDir: true, path: dirPath, uploadId: uploadCounter++, targetDir });
+    }
+
+    // Add files to the batch
+    for (const fileItem of files) {
+        batch.push({ ...fileItem, uploadId: uploadCounter++, targetDir });
+    }
+
+    const topLevelDirMap = new Map();
+    batch.forEach(item => {
+        const topLevelName = item.isDir ? item.path.split('/')[0] : (item.relativePath ? item.relativePath.split('/')[0] : item.file.name);
+        if (item.isDir) {
+            topLevelDirMap.set(topLevelName, true);
+        } else if (!topLevelDirMap.has(topLevelName)) {
+            topLevelDirMap.set(topLevelName, false);
+        }
+    });
+
     // Optimistic: Add uploading items to the explorer
     const addedTopLevels = new Set();
     batch.forEach(item => {
-        item.uploadId = uploadCounter++;
-        let targetName = item.file.name;
-        let isDir = false;
-        if (item.relativePath && item.relativePath.includes('/')) {
-            targetName = item.relativePath.split('/')[0];
-            isDir = true;
-        }
-        if (addedTopLevels.has(targetName)) return;
-        addedTopLevels.add(targetName);
-        if (!currentItems.find(i => i.name === targetName)) {
-            currentItems.unshift({
-                name: targetName,
-                path: (isStorageView ? "" : currentDir) + ((isStorageView ? "" : currentDir) ? '/' : '') + targetName,
-                isDir: isDir,
-                size_f: isDir ? '--' : formatBytes(item.file.size),
-                type: isDir ? 'Folder' : (item.file.name.split('.').pop().toUpperCase() || 'file'),
-                mtime_f: new Date().toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
-                isUploading: true,
-                progress: 0,
-                uploadId: item.uploadId
-            });
+        const topLevelName = item.isDir ? item.path.split('/')[0] : (item.relativePath ? item.relativePath.split('/')[0] : item.file.name);
+        if (addedTopLevels.has(topLevelName)) return;
+        addedTopLevels.add(topLevelName);
+        
+        const isDir = topLevelDirMap.get(topLevelName);
+        const uploadItem = {
+            name: topLevelName,
+            path: (isStorageView ? "" : currentDir) + ((isStorageView ? "" : currentDir) ? '/' : '') + topLevelName,
+            isDir: isDir,
+            size_f: '--',
+            type: isDir ? 'Folder' : 'File',
+            mtime_f: new Date().toLocaleString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }),
+            isUploading: true,
+            progress: 0,
+            uploadId: item.uploadId,
+            targetDir: targetDir
+        };
+        
+        activeUploads.push(uploadItem);
+        
+        if (!currentItems.find(i => i.name === topLevelName)) {
+            currentItems.unshift(uploadItem);
             totalItems++;
         }
     });
@@ -846,27 +927,26 @@ async function processUploadBatch(batch) {
         container.style.display = 'flex';
         if (!isUploadingNow) {
             fileList.innerHTML = '';
-            // uploadCounter = 0; // Don't reset this!
             sessionSuccessCount = 0;
         }
     }
     
     batch.forEach((item) => {
         const id = item.uploadId;
-        const fileName = item.relativePath || item.file.name;
+        const fileName = item.isDir ? item.path : (item.relativePath || item.file.name);
         const itemDiv = document.createElement('div');
         itemDiv.id = `upload-item-${id}`;
-        itemDiv.style = 'padding: 15px 0; border-bottom: 1px solid #f9f9f9;';
+        itemDiv.style = 'padding: 15px 0;';
         itemDiv.innerHTML = `
             <div id="progress-container-${id}" style="height: 3px; background: #f0f0f0; border-radius: 2px; margin-bottom: 10px; overflow: hidden;">
                 <div id="bar-${id}" style="height: 100%; background: #4c51bf; width: 0%; transition: width 0.2s;"></div>
             </div>
             <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-                <div style="margin-right: 10px; flex-shrink: 0;">${getFileIcon({ name: item.file.name, isDir: false })}</div>
+                <div style="margin-right: 10px; flex-shrink: 0;">${getFileIcon({ name: fileName, isDir: item.isDir })}</div>
                 <div style="flex-grow: 1; min-width: 0;">
                     <div style="font-size: 0.9rem; font-weight: 500; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(fileName)}">${escapeHtml(fileName)}</div>
                     <div style="font-size: 0.75rem; color: #999; margin-top: 4px;">
-                        <span id="size-${id}">0 / ${formatBytes(item.file.size)}</span>
+                        <span id="size-${id}">${item.isDir ? 'Creating...' : `0 / ${formatBytes(item.file.size)}`}</span>
                     </div>
                 </div>
                 <div style="text-align: right; margin-left: 15px; flex-shrink: 0;">
@@ -903,6 +983,36 @@ async function runUploadQueue() {
         }
         
         const item = uploadQueue.shift();
+        
+        if (item.isDir) {
+            badge.innerText = `Uploading ${uploadQueue.length + 1} items...`;
+            const fd = new FormData(); fd.append('newfolder', item.path);
+            try {
+                const uploadDir = item.targetDir;
+                await fetch(`?ajax=1&dir=${encodeURIComponent(uploadDir)}`, {method: 'POST', body: fd});
+                const bar = document.getElementById(`bar-${item.uploadId}`);
+                if (bar) bar.style.width = '100%';
+                const sizeLabel = document.getElementById(`size-${item.uploadId}`);
+                if (sizeLabel) sizeLabel.innerText = 'Created';
+                const speedLabel = document.getElementById(`speed-${item.uploadId}`);
+                if (speedLabel) {
+                    speedLabel.innerText = 'Done';
+                    speedLabel.style.color = '#38a169';
+                }
+                
+                // Hide progress bar and abort button on success
+                const progressContainer = document.getElementById(`progress-container-${item.uploadId}`);
+                const abortBtn = document.getElementById(`abort-${item.uploadId}`);
+                if (progressContainer) progressContainer.style.display = 'none';
+                if (abortBtn) abortBtn.style.display = 'none';
+                
+                sessionSuccessCount++;
+            } catch (e) {
+                failed = true;
+            }
+            continue;
+        }
+
         sessionBytesUploaded += item.file.size;
         const id = item.uploadId;
         currentlyUploadingId = id;
@@ -934,7 +1044,7 @@ async function runUploadQueue() {
                 }
             };
             xhr.onreadystatechange = () => { if (xhr.readyState === 4) { if (xhr.status === 200) resolve(); else reject(); } };
-            const uploadDir = isStorageView ? "" : currentDir;
+            const uploadDir = item.targetDir;
             let uploadUrl = `${window.location.pathname}?dir=${encodeURIComponent(uploadDir)}&action=upload&ajax=1`;
             if (isSharedView) {
                 const shareToken = new URLSearchParams(window.location.search).get('share');
@@ -1009,14 +1119,10 @@ async function runUploadQueue() {
     await fetchFullIndex();
     
     // Cleanup uploading status in explorer
-    currentItems.forEach(item => {
-        if (item.isUploading) {
-            item.isUploading = false;
-            item.progress = 100;
-        }
-    });
-    sortItemsLocally();
-    renderExplorer();
+    activeUploads = [];
+    
+    // Refresh explorer with actual server data
+    await fetchExplorer(currentDir, '', 1);
 }
 
 function closeUploadContainer() {
@@ -1093,9 +1199,11 @@ function setupDragAndDrop() {
         const initialEntries = [];
         for (let i = 0; i < items.length; i++) { const entry = items[i].webkitGetAsEntry(); if (entry) initialEntries.push(entry); }
         let filesToUpload = [];
+        let directoriesToCreate = [];
         async function getFilesFromEntry(entry, path = "") {
             if (entry.isFile) return new Promise(resolve => entry.file(file => { filesToUpload.push({ file, relativePath: path + file.name }); resolve(); }));
             else if (entry.isDirectory) {
+                directoriesToCreate.push(path + entry.name);
                 const dirReader = entry.createReader(); let allEntries = [];
                 const readMore = async () => new Promise(resolve => dirReader.readEntries(async results => { if (results.length > 0) { allEntries = allEntries.concat(results); await readMore(); resolve(); } else resolve(); }));
                 await readMore();
@@ -1103,7 +1211,7 @@ function setupDragAndDrop() {
             }
         }
         for (const entry of initialEntries) await getFilesFromEntry(entry);
-        if (filesToUpload.length) processUploadBatch(filesToUpload);
+        if (filesToUpload.length || directoriesToCreate.length) processUploadBatch(filesToUpload, directoriesToCreate);
     });
 }
 
@@ -1194,38 +1302,63 @@ function updateBulkBtn() {
             if (row) row.classList.remove('active-row'); 
         }
     });
+    if (checkedCount === 1) {
+        selectedPath = activePaths[0];
+        const item = currentItems.find(i => i.path === selectedPath);
+        if (item) {
+            selectedName = item.name;
+        } else {
+            selectedName = selectedPath.split('/').pop();
+        }
+    } else if (checkedCount > 1) {
+        selectedName = null;
+        selectedPath = null;
+    }
+
     const bulkActions = document.getElementById('bulkActions');
     if (!bulkActions) return;
 
     if (checkedCount > 0) {
         bulkActions.style.display = 'flex';
         
+        const bulkRenameBtn = document.getElementById('bulkRenameBtn');
+        const bulkShareBtn = document.getElementById('bulkShareBtn');
+        if (bulkRenameBtn) {
+            if (checkedCount === 1) {
+                bulkRenameBtn.style.display = 'flex';
+                if (bulkShareBtn) bulkShareBtn.style.display = 'flex';
+            } else {
+                bulkRenameBtn.style.display = 'none';
+                if (bulkShareBtn) bulkShareBtn.style.display = 'none';
+            }
+        }
+        
         const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
-        if (bulkDeleteBtn) bulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
+        if (bulkDeleteBtn) bulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
         
         const bulkMoveBtn = document.getElementById('bulkMoveBtn');
-        if (bulkMoveBtn) bulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
+        if (bulkMoveBtn) bulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="margin-right:6px;width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
         
         const bulkZipBtn = document.getElementById('bulkZipBtn');
-        if (bulkZipBtn) bulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
+        if (bulkZipBtn) bulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="margin-right:6px;width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
 
         const mBulkDeleteBtn = document.getElementById('m-dropdown-bulkDeleteBtn');
-        if (mBulkDeleteBtn) mBulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
+        if (mBulkDeleteBtn) mBulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="margin-right:9px;width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
         
         const mBulkMoveBtn = document.getElementById('m-dropdown-bulkMoveBtn');
-        if (mBulkMoveBtn) mBulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
+        if (mBulkMoveBtn) mBulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="margin-right:9px;width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
         
         const mBulkZipBtn = document.getElementById('m-dropdown-bulkZipBtn');
-        if (mBulkZipBtn) mBulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
+        if (mBulkZipBtn) mBulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="margin-right:9px;width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
 
         const ctxBulkMoveBtn = document.getElementById('contextMenubulkMoveBtn');
-        if (ctxBulkMoveBtn) ctxBulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
+        if (ctxBulkMoveBtn) ctxBulkMoveBtn.innerHTML = `<img src="img-icon/file-icon/move-file.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move (${checkedCount})`;
         
         const ctxBulkDeleteBtn = document.getElementById('contextMenubulkDeleteBtn');
-        if (ctxBulkDeleteBtn) ctxBulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
+        if (ctxBulkDeleteBtn) ctxBulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
         
         const ctxBulkZipBtn = document.getElementById('contextMenubulkZipBtn');
-        if (ctxBulkZipBtn) ctxBulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
+        if (ctxBulkZipBtn) ctxBulkZipBtn.innerHTML = `<img src="img-icon/file-icon/zip.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP (${checkedCount})`;
     } else {
         bulkActions.style.display = 'none';
     }
@@ -1235,6 +1368,9 @@ function handleContextMenu(e, el) {
     e.preventDefault(); 
     
     const path = el.dataset.path;
+
+    document.getElementById("desktop-breadcrumb-dropdown-content").classList.remove("show");
+    document.getElementById("mobile-breadcrumb-dropdown-content").classList.remove("show");
     
     // If the clicked item is NOT in the current selection, reset selection
     if (!activePaths.includes(path)) {
@@ -1892,6 +2028,15 @@ function submitBulkZip() {
 }
 
 function renamePrompt() {
+    if (!selectedName && activePaths.length === 1) {
+        selectedPath = activePaths[0];
+        const item = currentItems.find(i => i.path === selectedPath);
+        if (item) {
+            selectedName = item.name;
+        } else {
+            selectedName = selectedPath.split('/').pop();
+        }
+    }
     const title = document.getElementById('promptTitle');
     const input = document.getElementById('promptInput');
     const btn = document.getElementById('promptOkBtn');
@@ -1904,26 +2049,79 @@ function renamePrompt() {
     if (btn) {
         btn.onclick = async () => {
             const n = document.getElementById('promptInput').value.trim(); if (!n) return;
-            const fd = new FormData(); fd.append('rename_old', selectedPath); fd.append('rename_new', n);
+            
+            // 1. Optimistic update
+            const item = currentItems.find(i => i.path === selectedPath);
+            if (!item) return;
+            
+            const oldName = item.name;
+            const oldPath = item.path;
+            const lastSlash = oldPath.lastIndexOf('/');
+            const parentPath = lastSlash > -1 ? oldPath.substring(0, lastSlash) : "";
+            const newPath = parentPath ? parentPath + '/' + n : n;
+            
+            // Update client state (currentItems)
+            item.name = n;
+            item.path = newPath;
+            item.isRenaming = true; // Set renaming status
+            
+            // Update fullIndex
+            if (fullIndex) {
+                const itemInIndex = fullIndex.find(i => i.path === oldPath);
+                if (itemInIndex) {
+                    itemInIndex.name = n;
+                    itemInIndex.path = newPath;
+                    itemInIndex.isRenaming = true;
+                }
+                
+                // If it's a directory, update all sub-items
+                if (item.isDir) {
+                    fullIndex.forEach(i => {
+                        if (i.path.startsWith(oldPath + '/')) {
+                            i.path = newPath + i.path.substring(oldPath.length);
+                        }
+                    });
+                }
+            }
+            
+            renderExplorer();
+            closeModal('promptModal');
+            showSnackbar(`Renaming "${oldName}" to "${n}"...`);
+
+            // 2. Background server call
+            const fd = new FormData(); fd.append('rename_old', oldPath); fd.append('rename_new', n);
             try {
                 const res = await fetch(`?ajax=1&dir=${encodeURIComponent(currentDir)}`, {method:'POST', body:fd});
                 const result = await res.json();
                 if (result.success) {
+                    // Refresh index in background to ensure consistency
                     await fetchExplorer(currentDir, currentSearch, currentPage, true, true);
                     showSnackbar(`Renamed to "${n}"`);
                 } else {
+                    // Revert on failure
+                    item.name = oldName;
+                    item.path = oldPath;
+                    item.isRenaming = false;
+                    fetchExplorer(currentDir, currentSearch, currentPage, true, true);
                     showSnackbar(`Rename failed: ${result.error || 'Unknown error'}`, { duration: 5000 });
                 }
             } catch (e) {
+                // Revert on failure
+                item.name = oldName;
+                item.path = oldPath;
+                item.isRenaming = false;
+                fetchExplorer(currentDir, currentSearch, currentPage, true, true);
                 showSnackbar("Rename error occurred.", { duration: 5000 });
             }
-            closeModal('promptModal');
         };
     }
     openModal('promptModal');
 }
 
 async function sharePrompt() {
+    if (!selectedPath && activePaths.length === 1) {
+        selectedPath = activePaths[0];
+    }
     const isDir = currentItems.find(i => i.path === selectedPath)?.isDir;
     const uploadOption = document.getElementById('shareUploadOption');
     const allowUploadSelect = document.getElementById('shareAllowUpload');
@@ -2002,10 +2200,13 @@ function copyShareLink() {
 
 let moveModalDir = "";
 let moveModalSelectedPath = "";
+let movingItems = [];
+let lastTapTime = 0;
 
 async function movePrompt() {
     const checked = Array.from(document.querySelectorAll('input[name="selected_items[]"]:checked'));
-    const movingItems = [], hasSelection = checked.length > 0;
+    movingItems = [];
+    const hasSelection = checked.length > 0;
     const title = document.getElementById('moveModalTitle');
     const btn = document.getElementById('moveModalConfirmBtn');
 
@@ -2094,8 +2295,7 @@ async function renderMoveModal() {
     html += `
         <div class="move-modal-item ${isRootSelected ? 'selected' : ''}" 
              data-path=""
-             onclick="event.stopPropagation(); moveModalSelect('')"
-             ondblclick="event.stopPropagation(); moveModalNavigate('')">
+             onclick="handleMoveModalItemClick(event, '', true, false)">
             <div class="folder-icon"><img src="img-icon/file-icon/house.png" style="width:24px; height:24px; vertical-align:middle;" referrerpolicy="no-referrer"></div>
             <div style="font-weight: 500;">/Root</div>
         </div>
@@ -2115,13 +2315,14 @@ async function renderMoveModal() {
     items.forEach(f => {
         const isSelected = moveModalSelectedPath === f.path;
         const isDir = f.isDir;
+        const isForbidden = isDir && movingItems.some(m => f.path === m || f.path.startsWith(m + '/'));
+        
         html += `
-            <div class="move-modal-item ${isSelected ? 'selected' : ''}" 
+            <div class="move-modal-item ${isSelected ? 'selected' : ''} ${isForbidden ? 'disabled' : ''}" 
                  data-path="${escapeHtml(f.path)}"
-                 onclick="event.stopPropagation(); moveModalSelect('${escapeJs(f.path)}')"
-                 ${isDir ? `ondblclick="event.stopPropagation(); moveModalNavigate('${escapeJs(f.path)}')"` : ''}>
-                <div class="folder-icon" style='${isDir ? '' : 'opacity: 0.5;'}'>${getFileIcon(f)}</div>
-                <div style="font-weight: 500; ${isDir ? '' : 'color: silver;'}">${escapeHtml(f.name)}</div>
+                 onclick="handleMoveModalItemClick(event, '${escapeJs(f.path)}', ${isDir}, ${isForbidden})">
+                <div class="folder-icon" style='${isDir ? '' : 'opacity: 0.5;'} ${isForbidden ? 'opacity: 0.5;' : ''}'>${getFileIcon(f)}</div>
+                <div style="font-weight: 500; ${isDir ? '' : 'color: silver;'} ${isForbidden ? 'color: silver;' : ''}">${escapeHtml(f.name)}</div>
             </div>
         `;
     });
@@ -2162,17 +2363,38 @@ function moveModalNavigate(path) {
     renderMoveModal();
 }
 
-function moveModalSelect(path) {
-    moveModalSelectedPath = path;
+function handleMoveModalItemClick(e, path, isDir, isForbidden) {
+    e.stopPropagation();
+    if (isForbidden) return;
+
+    const currentTime = new Date().getTime();
+    const tapLength = currentTime - lastTapTime;
     
-    // Find the item in fullIndex to check if it's a directory
-    // Root is path === ''
-    const isDir = path === '' || (fullIndex.find(f => f.path === path)?.isDir);
+    if (tapLength < 300 && tapLength > 0) {
+        // Double tap/click
+        if (isDir) {
+            moveModalNavigate(path);
+        }
+    } else {
+        // Single tap/click
+        moveModalSelect(path);
+    }
+    lastTapTime = currentTime;
+}
+
+function moveModalSelect(path) {
+    const item = path === '' ? { isDir: true } : fullIndex.find(f => f.path === path);
+    const isDir = item?.isDir;
+    const isForbidden = isDir && movingItems.some(m => path === m || path.startsWith(m + '/'));
     
     const btn = document.getElementById('moveModalConfirmBtn');
     if (btn) {
-        btn.disabled = !isDir;
+        btn.disabled = isForbidden || !isDir;
     }
+
+    if (isForbidden) return;
+
+    moveModalSelectedPath = path;
     
     const items = document.querySelectorAll('.move-modal-item');
     items.forEach(item => {

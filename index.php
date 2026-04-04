@@ -194,15 +194,17 @@ function recursiveDelete($path) {
 }
 
 function recursiveCopy($src, $dst, $isTopLevel = true) {
-    if ($isTopLevel && file_exists($dst)) {
+    if ($isTopLevel) { // Removed file_exists($dst) so it always runs for top-level copies
         $pathInfo = pathinfo($dst);
         $dir = $pathInfo['dirname'];
         $filename = $pathInfo['filename'];
         $extension = isset($pathInfo['extension']) ? '.' . $pathInfo['extension'] : '';
         
+        // Always prefix with "Copy of"
         $newName = "Copy of " . $filename . $extension;
         $dst = $dir . DIRECTORY_SEPARATOR . $newName;
         
+        // Keep the counter to handle duplicates of the "Copy of" file itself
         $counter = 2;
         while (file_exists($dst)) {
             $dst = $dir . DIRECTORY_SEPARATOR . "Copy of " . $filename . " ($counter)" . $extension;
@@ -214,6 +216,7 @@ function recursiveCopy($src, $dst, $isTopLevel = true) {
         if (!file_exists($dst)) @mkdir($dst, 0777, true);
         $files = array_diff(scandir($src), array('.', '..'));
         foreach ($files as $file) {
+            // $isTopLevel is false here so sub-files/folders keep original names
             recursiveCopy($src . DIRECTORY_SEPARATOR . $file, $dst . DIRECTORY_SEPARATOR . $file, false);
         }
     } else {
@@ -484,15 +487,17 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
 
 
     if (!empty($_POST['newfolder'])) {
-        $name = preg_replace('/[^a-zA-Z0-9\s._-]/', '', $_POST['newfolder']);
+        $name = preg_replace('/[^a-zA-Z0-9\s._\-\/]/', '', $_POST['newfolder']);
         $success = false;
         if (trim($name)) {
-            $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . trim($name);
+            $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . trim(str_replace('/', DIRECTORY_SEPARATOR, $name));
             if (!file_exists($newFolderPath)) {
                  if (@mkdir($newFolderPath, 0777, true)) {
                      $success = true;
                      invalidateCache($cacheFile, $globalIndexFile);
                  }
+            } else {
+                $success = true; // Already exists
             }
         }
         if ($isAjax) sendJsonResponse(['success' => $success]);
@@ -754,7 +759,7 @@ if ($isAjax) {
                 <input type="file" id="uploadInput" multiple style="display:none" onchange="uploadItems('file')">
                 
                 <button class="btn btn-outline" onclick="document.getElementById('folderInput').click()"><img src="img-icon/file-icon/folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> <span>Upload Folder</span></button>
-                <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="uploadItems('folder')">
+                <input type="file" id="folderInput" webkitdirectory style="display:none" onchange="uploadItems('Folder')">
 
                 <?php if (!$is_shared_view || ($is_shared_view && $allow_upload)): ?>
                 <button class="btn btn-outline" onclick="openModal('folderModal')"><img src="img-icon/file-icon/new-folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> <span>New Folder</span></button>
@@ -772,16 +777,29 @@ if ($isAjax) {
                     <div id="bulkActions" class="bulk-actions-group" style="display: none;">
                         <div class="desktop-bulk-actions">
                             <?php if (!$is_shared_view): ?>
-                            <button class="btn btn-tonal-primary bulkMoveBtn" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</button>
-                            <button class="btn btn-tonal-primary bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</button>
+                            <button class="btn btn-tonal-primary" onclick="toggleBreadcrumbDropdown(this)">⚡ Actions</button>
+                            <div id="desktop-breadcrumb-dropdown-content" class="breadcrumb-dropdown-content" style="right: 270px; left: auto;align-items: center;">
+
+                                <a id="bulkShareBtn" onclick="sharePrompt()"><img src="img-icon/file-icon/share-link.png" style="margin-right:9px;width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Share link</a>
+                                <a id="bulkRenameBtn" onclick="renamePrompt()"><img src="img-icon/file-icon/rename.png" style="margin-right:9px;width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Rename</a>
+                                <a onclick="makeCopy()"><img src="img-icon/file-icon/copy.png" style="margin-right:6px;width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Make a Copy</a>
+
+                                <a class="bulkMoveBtn" id="bulkMoveBtn" onclick="movePrompt()">➡️ Move</a>
+                                <a class="bulkZipBtn" id="bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</a>
+                            </div>
                             <?php endif; ?>
                             <button class="btn btn-tonal-danger bulkDeleteBtn" id="bulkDeleteBtn" onclick="submitBulkDelete()">🗑️ Delete</button>
                         </div>
                         <div class="mobile-bulk-actions">
                             <div class="breadcrumb-dropdown">
                                 <button class="btn btn-tonal-primary" onclick="toggleBreadcrumbDropdown(this)">⚡ Actions</button>
-                                <div class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
+                                <div id="mobile-breadcrumb-dropdown-content" class="breadcrumb-dropdown-content" style="right: 0; left: auto;">
                                     <?php if (!$is_shared_view): ?>
+
+                                    <a id="bulkShareBtn" onclick="sharePrompt()"><img src="img-icon/file-icon/share-link.png" style="margin-right:9px;width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Share link</a>
+                                    <a id="bulkRenameBtn" onclick="renamePrompt()"><img src="img-icon/file-icon/rename.png" style="margin-right:9px;width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Rename</a>
+                                    <a onclick="makeCopy()"><img src="img-icon/file-icon/copy.png" style="margin-right:9px;width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Make a Copy</a>
+
                                     <a id="m-dropdown-bulkMoveBtn" onclick="movePrompt()">➡️ Move</a>
                                     <a id="m-dropdown-bulkZipBtn" onclick="submitBulkZip()">📦 Download as ZIP</a>
                                     <?php endif; ?>
@@ -813,6 +831,14 @@ if ($isAjax) {
                 #uploadFileList::-webkit-scrollbar-track { background: #f7fafc; }
                 #uploadFileList::-webkit-scrollbar-thumb { background: #edf2f7; border-radius: 3px; }
                 #uploadFileList::-webkit-scrollbar-thumb:hover { background: #e2e8f0; }
+                @media (max-width: 600px) {
+                    #uploadContainer {
+                        width: 90% !important;
+                        right: 5% !important;
+                        bottom: 10px !important;
+                        max-height: 400px !important;
+                    }
+                }
             </style>
             <div id="uploadContainer" style="display: none; width: 450px; max-height: 500px; background: #fff; position: fixed; bottom: 20px; right: 25px; box-shadow: 0px 10px 30px rgba(0,0,0,0.15); z-index: 1000; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid #eee;">
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid #f0f0f0;">
@@ -958,11 +984,12 @@ if ($isAjax) {
 
     <!-- Context Menu -->
     <div id="contextMenu" class="context-menu">
-        <div onclick="sharePrompt()"><img src="img-icon/file-icon/share-link.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Share link</div>
-        <div onclick="renamePrompt()"><img src="img-icon/file-icon/rename.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Rename</div>
-        <div id="contextMenubulkMoveBtn" onclick="movePrompt()"><img src="img-icon/file-icon/move-file.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move</div>
-        <div id="contextMenubulkZipBtn" onclick="submitBulkZip()"><img src="img-icon/file-icon/zip.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP</div>
-        <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()"><img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete</div>
+        <div onclick="sharePrompt()"><img src="img-icon/file-icon/share-link.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Share link</div>
+        <div onclick="renamePrompt()"><img src="img-icon/file-icon/rename.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Rename</div>
+        <div onclick="makeCopy()"><img src="img-icon/file-icon/copy.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Make a Copy</div>
+        <div id="contextMenubulkMoveBtn" onclick="movePrompt()"><img src="img-icon/file-icon/move-file.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move</div>
+        <div id="contextMenubulkZipBtn" onclick="submitBulkZip()"><img src="img-icon/file-icon/zip.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP</div>
+        <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()"><img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete</div>
     </div>
     <?php endif; ?>
 
