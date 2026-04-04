@@ -1129,6 +1129,18 @@ function closeUploadContainer() {
     document.getElementById('uploadContainer').style.display = 'none';
 }
 
+function toggleUploadContainer() {
+    const container = document.getElementById('uploadFileList');
+    const icon = document.getElementById('toggleIcon');
+    if (container.style.height === '0px') {
+        container.style.height = 'auto';
+        icon.src = 'img-icon/file-icon/chevron-down.png';
+    } else {
+        container.style.height = '0px';
+        icon.src = 'img-icon/file-icon/chevron-up.png';
+    }
+}
+
 function setupDragAndDrop() {
     // Storage Button
     const storageBtn = document.getElementById('storageBtn');

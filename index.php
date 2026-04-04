@@ -843,7 +843,10 @@ if ($isAjax) {
             <div id="uploadContainer" style="display: none; width: 450px; max-height: 500px; background: #fff; position: fixed; bottom: 20px; right: 25px; box-shadow: 0px 10px 30px rgba(0,0,0,0.15); z-index: 1000; flex-direction: column; border-radius: 12px; overflow: hidden; border: 1px solid #eee;">
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; border-bottom: 1px solid #f0f0f0;">
                     <div id="uploadCountBadge" style="font-weight: 600; font-size: 1rem; color: #1a1a1a;">Uploading 0 items</div>
-                    <button style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #666; line-height: 1;" onclick="closeUploadContainer()">✕</button>
+                    <div style="display: flex; align-items: center; gap: 10px;">
+                        <button style="background: none;border: none;font-size: 1.2rem;cursor: pointer;color: #666;line-height: 1;" onclick="toggleUploadContainer()"><img id="toggleIcon" src="img-icon/file-icon/chevron-down.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /></button>
+                        <button style="background: none; border: none; font-size: 1.2rem; cursor: pointer; color: #666; line-height: 1;" onclick="closeUploadContainer()">✕</button>
+                    </div>
                 </div>
                 <div id="uploadFileList" style="flex-grow: 1; overflow-y: auto; padding: 0 20px;">
                     <!-- Upload items will be injected here -->
