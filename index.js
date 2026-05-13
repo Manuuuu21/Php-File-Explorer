@@ -1,6 +1,14 @@
 // --- STATE VARIABLES ---
 let fullIndex = null;
 let currentDir = "";
+let videoRotation = 0;
+function rotateVideo() {
+    videoRotation = (videoRotation + 90) % 360;
+    const video = document.querySelector('#mediaContainer video');
+    if (video) {
+        video.style.transform = `rotate(${videoRotation}deg)`;
+    }
+}
 let currentSearch = "";
 let currentItems = [];
 let currentPage = 1;
@@ -1244,6 +1252,7 @@ function closeModal(id) {
             if (media) media.pause();
             container.innerHTML = '';
             currentPdfDoc = null;
+            videoRotation = 0;
         }
     }, 300); 
 }
@@ -1339,17 +1348,10 @@ function updateBulkBtn() {
     if (checkedCount > 0) {
         bulkActions.style.display = 'flex';
         
-        const bulkRenameBtn = document.getElementById('bulkRenameBtn');
-        const bulkShareBtn = document.getElementById('bulkShareBtn');
-        if (bulkRenameBtn) {
-            if (checkedCount === 1) {
-                bulkRenameBtn.style.display = 'flex';
-                if (bulkShareBtn) bulkShareBtn.style.display = 'flex';
-            } else {
-                bulkRenameBtn.style.display = 'none';
-                if (bulkShareBtn) bulkShareBtn.style.display = 'none';
-            }
-        }
+        ['bulkRenameBtn', 'bulkShareBtn', 'bulkRenameBtn2', 'bulkShareBtn2'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = checkedCount === 1 ? 'flex' : 'none';
+        });
         
         const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
         if (bulkDeleteBtn) bulkDeleteBtn.innerHTML = `<img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete (${checkedCount})`;
@@ -1451,20 +1453,26 @@ function loadMedia() {
     document.getElementById('mediaSubtitle').innerText = `${item.type} • ${item.size_f}`;
     const ext = item.type.toLowerCase();
     let url = `?download=${encodeURIComponent(item.path)}&t=${Date.now()}`;
+    let mediaUrl = 'files/' + item.path; 
+
     if (isSharedView) {
         const shareToken = new URLSearchParams(window.location.search).get('share');
         url = `?share=${shareToken}&download=${encodeURIComponent(item.path)}&inline=1&t=${Date.now()}`;
+        mediaUrl = url;
     }
     
     const slideshowBtn = document.getElementById('pdfSlideshowBtn');
     if (slideshowBtn) slideshowBtn.style.display = (ext === 'pdf') ? 'inline-block' : 'none';
+    const rotateBtn = document.getElementById('rotateVideoBtn');
+    if (rotateBtn) rotateBtn.style.display = ['mp4','webm','ogg'].includes(ext) ? 'inline-block' : 'none';
 
     container.style.opacity = '0';
     setTimeout(async () => {
         if (['mp4','webm','ogg'].includes(ext)) {
-            container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${url}"></video>`;
+            videoRotation = 0;
+            container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${mediaUrl}"></video>`;
         } else if (['mp3','wav'].includes(ext)) {
-            container.innerHTML = `<div class="audio-player-wrapper"><div class="vinyl-disc" id="vinylDisc"><div class="vinyl-label">🎵</div></div><div style="width:125%; text-align:center;"><audio id="mainAudio" controls autoplay src="${url}"></audio></div></div>`;
+            container.innerHTML = `<div class="audio-player-wrapper"><div class="vinyl-disc" id="vinylDisc"><div class="vinyl-label">🎵</div></div><div style="width:125%; text-align:center;"><audio id="mainAudio" controls autoplay src="${mediaUrl}"></audio></div></div>`;
             const audio = document.getElementById('mainAudio'), disc = document.getElementById('vinylDisc');
             audio.onplay = () => disc.classList.add('playing');
             audio.onpause = audio.onended = () => disc.classList.remove('playing');
@@ -2441,10 +2449,6 @@ function moveModalSelect(path) {
         }
     });
 }
-
-document.addEventListener('DOMContentLoaded', () => {
-    fetchFullIndex();
-});
 
 async function fetchFullIndex() {
     if (isSharedView) return;
