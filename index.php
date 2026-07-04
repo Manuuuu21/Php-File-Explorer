@@ -265,14 +265,18 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $successCount = 0;
         $relativePath = $_POST['relativePath'] ?? '';
         if (!empty($relativePath)) {
-            $relativePath = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relativePath);
+            $relativePath = str_replace(['\\', "\0"], ['/', ''], $relativePath);
+            $parts = array_filter(explode('/', $relativePath), function($p) {
+                return $p !== '' && $p !== '.' && $p !== '..';
+            });
+            $relativePath = implode(DIRECTORY_SEPARATOR, $parts);
         }
         
         for ($i = 0; $i < count($files['name']); $i++) {
             if ($files['error'][$i] === UPLOAD_ERR_OK) {
                 $name = basename($files['name'][$i]);
                 if (!empty($relativePath)) {
-                    $targetFile = $currentDir . DIRECTORY_SEPARATOR . ltrim($relativePath, DIRECTORY_SEPARATOR);
+                    $targetFile = $currentDir . DIRECTORY_SEPARATOR . $relativePath;
                     $targetDir = dirname($targetFile);
                     if (!file_exists($targetDir)) @mkdir($targetDir, 0777, true);
                 } else {
@@ -491,17 +495,25 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
 
 
     if (!empty($_POST['newfolder'])) {
-        $name = preg_replace('/[^a-zA-Z0-9\s._\-\/]/', '', $_POST['newfolder']);
+        $rawFolder = trim($_POST['newfolder']);
+        $rawFolder = str_replace(['\\', "\0"], ['/', ''], $rawFolder);
+        $parts = array_filter(explode('/', $rawFolder), function($p) {
+            return $p !== '' && $p !== '.' && $p !== '..';
+        });
+        $cleanPath = implode(DIRECTORY_SEPARATOR, $parts);
+
         $success = false;
-        if (trim($name)) {
-            $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . trim(str_replace('/', DIRECTORY_SEPARATOR, $name));
-            if (!file_exists($newFolderPath)) {
-                 if (@mkdir($newFolderPath, 0777, true)) {
-                     $success = true;
-                     invalidateCache($cacheFile, $globalIndexFile);
-                 }
-            } else {
-                $success = true; // Already exists
+        if (!empty($cleanPath)) {
+            $newFolderPath = $currentDir . DIRECTORY_SEPARATOR . $cleanPath;
+            if (safePath($newFolderPath, $realBase)) {
+                if (!file_exists($newFolderPath)) {
+                    if (@mkdir($newFolderPath, 0777, true)) {
+                        $success = true;
+                        invalidateCache($cacheFile, $globalIndexFile);
+                    }
+                } else {
+                    $success = true; // Already exists
+                }
             }
         }
         if ($isAjax) sendJsonResponse(['success' => $success]);

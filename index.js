@@ -9,6 +9,97 @@ function rotateVideo() {
         video.style.transform = `rotate(${videoRotation}deg)`;
     }
 }
+
+let isAudioShuffle = false;
+let audioLoopMode = 'off'; // 'off', 'one', 'all'
+
+function toggleAudioShuffle() {
+    isAudioShuffle = !isAudioShuffle;
+    if (isAudioShuffle) {
+        audioLoopMode = 'off';
+        const audio = document.getElementById('mainAudio');
+        if (audio) {
+            audio.loop = false;
+        }
+    }
+    updateAudioControlButtons();
+}
+
+function toggleAudioLoop() {
+    if (audioLoopMode === 'off') {
+        audioLoopMode = 'one';
+    } else if (audioLoopMode === 'one') {
+        audioLoopMode = 'all';
+    } else {
+        audioLoopMode = 'off';
+    }
+    if (audioLoopMode !== 'off') {
+        isAudioShuffle = false;
+    }
+    const audio = document.getElementById('mainAudio');
+    if (audio) {
+        audio.loop = (audioLoopMode === 'one');
+    }
+    updateAudioControlButtons();
+}
+
+function updateAudioControlButtons() {
+    const playerShuffleBtn = document.getElementById('audioPlayerShuffleBtn');
+    const playerLoopBtn = document.getElementById('audioPlayerLoopBtn');
+
+    const shuffleText = `🔀 Shuffle: ${isAudioShuffle ? 'On' : 'Off'}`;
+    let loopText = '🔁 Loop: Off';
+    if (audioLoopMode === 'one') loopText = '🔂 Loop: Current';
+    else if (audioLoopMode === 'all') loopText = '🔁 Loop: All';
+
+    if (playerShuffleBtn) {
+        playerShuffleBtn.innerText = shuffleText;
+        if (isAudioShuffle) {
+            playerShuffleBtn.style.background = '#3f51b5';
+            playerShuffleBtn.style.color = '#ffffff';
+        } else {
+            playerShuffleBtn.style.background = '';
+            playerShuffleBtn.style.color = '';
+        }
+    }
+
+    if (playerLoopBtn) {
+        playerLoopBtn.innerText = loopText;
+        if (audioLoopMode !== 'off') {
+            playerLoopBtn.style.background = '#3f51b5';
+            playerLoopBtn.style.color = '#ffffff';
+        } else {
+            playerLoopBtn.style.background = '';
+            playerLoopBtn.style.color = '';
+        }
+    }
+}
+
+function playRandomAudio() {
+    const audioIndices = [];
+    mediaItems.forEach((item, index) => {
+        const ext = item.type.toLowerCase();
+        if (['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(ext)) {
+            audioIndices.push(index);
+        }
+    });
+
+    if (audioIndices.length <= 1) {
+        if (audioIndices.length === 1) {
+            currentMediaIndex = audioIndices[0];
+            loadMedia();
+        }
+        return;
+    }
+
+    let randomIndex = currentMediaIndex;
+    while (randomIndex === currentMediaIndex) {
+        const r = Math.floor(Math.random() * audioIndices.length);
+        randomIndex = audioIndices[r];
+    }
+    currentMediaIndex = randomIndex;
+    loadMedia();
+}
 let currentSearch = "";
 let currentItems = [];
 let currentPage = 1;
@@ -1466,17 +1557,51 @@ function loadMedia() {
     const rotateBtn = document.getElementById('rotateVideoBtn');
     if (rotateBtn) rotateBtn.style.display = ['mp4','webm','ogg'].includes(ext) ? 'inline-block' : 'none';
 
+    const isAudio = ['mp3','wav','ogg','m4a','flac'].includes(ext);
+
+    updateAudioControlButtons();
+
     container.style.opacity = '0';
     setTimeout(async () => {
         if (['mp4','webm','ogg'].includes(ext)) {
             videoRotation = 0;
             container.innerHTML = `<video controls autoplay style="max-height:70vh; max-width:100%" src="${mediaUrl}"></video>`;
-        } else if (['mp3','wav'].includes(ext)) {
-            container.innerHTML = `<div class="audio-player-wrapper"><div class="vinyl-disc" id="vinylDisc"><div class="vinyl-label">🎵</div></div><div style="width:125%; text-align:center;"><audio id="mainAudio" controls autoplay src="${mediaUrl}"></audio></div></div>`;
+        } else if (isAudio) {
+            container.innerHTML = `
+                <div class="audio-player-wrapper">
+                    <div class="vinyl-disc" id="vinylDisc"><div class="vinyl-label">🎵</div></div>
+                    <div style="width:125%; text-align:center;">
+                        <audio id="mainAudio" controls autoplay src="${mediaUrl}"></audio>
+                    </div>
+                    <div class="audio-controls-extra" style="margin-top: 20px; display: flex; gap: 12px; justify-content: center; align-items: center;">
+                        <button class="btn btn-tonal-primary" id="audioPlayerShuffleBtn" onclick="toggleAudioShuffle()" style="padding: 8px 18px; border-radius: 20px; font-size: 0.85rem; cursor: pointer;">🔀 Shuffle: Off</button>
+                        <button class="btn btn-tonal-primary" id="audioPlayerLoopBtn" onclick="toggleAudioLoop()" style="padding: 8px 18px; border-radius: 20px; font-size: 0.85rem; cursor: pointer;">🔁 Loop: Off</button>
+                    </div>
+                </div>
+            `;
             const audio = document.getElementById('mainAudio'), disc = document.getElementById('vinylDisc');
+            if (audioLoopMode === 'one') {
+                audio.loop = true;
+            }
             audio.onplay = () => disc.classList.add('playing');
-            audio.onpause = audio.onended = () => disc.classList.remove('playing');
+            audio.onpause = () => disc.classList.remove('playing');
+            audio.onended = () => {
+                disc.classList.remove('playing');
+                if (audioLoopMode === 'one') {
+                    audio.currentTime = 0;
+                    audio.play();
+                } else if (isAudioShuffle) {
+                    playRandomAudio();
+                } else if (audioLoopMode === 'all') {
+                    navigateMedia(1);
+                } else {
+                    if (currentMediaIndex < mediaItems.length - 1) {
+                        navigateMedia(1);
+                    }
+                }
+            };
             if (!audio.paused) disc.classList.add('playing');
+            updateAudioControlButtons();
         } else if (ext === 'pdf') {
             container.innerHTML = `<div class="pdf-viewer-container" id="pdfViewer">
                 <div style="color: white; padding: 20px;">Loading PDF...</div>
@@ -1865,7 +1990,34 @@ window.addEventListener('resize', () => {
     }
 });
 
-function navigateMedia(d) { if (mediaItems.length <= 1) return; currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length; loadMedia(); }
+function navigateMedia(d) {
+    if (mediaItems.length <= 1) return;
+    const currentItem = mediaItems[currentMediaIndex];
+    const isAudio = currentItem && ['mp3', 'wav', 'ogg', 'm4a', 'flac'].includes(currentItem.type.toLowerCase());
+
+    if (isAudio && isAudioShuffle && audioLoopMode !== 'one') {
+        playRandomAudio();
+    } else {
+        currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length;
+        loadMedia();
+    }
+}
+function openModal(id) {
+    const m = document.getElementById(id);
+    if (m) m.classList.add('active');
+}
+
+function closeModal(id) {
+    const m = document.getElementById(id);
+    if (m) m.classList.remove('active');
+    if (id === 'mediaModal') {
+        const audio = document.getElementById('mainAudio');
+        if (audio) {
+            audio.pause();
+        }
+    }
+}
+
 function uiConfirm(msg, ok) { 
     const text = document.getElementById('confirmText');
     const btn = document.getElementById('confirmOkBtn');
