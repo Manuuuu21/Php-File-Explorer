@@ -33,42 +33,82 @@ function safePath($path, $realBase) {
 }
 
 // ================= SHARE LINK HANDLING (BEFORE AUTH) =================
+function renderInvalidSharePage($message) {
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Access Revoked - File Explorer</title>
+        <style>
+            :root { --primary: #3f51b5; --bg: #f8f9fa; --text: #1c1b1f; --surface: #ffffff; }
+            body { font-family: 'Roboto', system-ui, sans-serif; background: var(--bg); display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; padding: 20px; box-sizing: border-box; }
+            .expired-card { background: var(--surface); padding: 3rem 2.5rem; border-radius: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.06); width: 100%; max-width: 440px; text-align: center; border: 1px solid #f0f0f0; }
+            .icon-wrapper { font-size: 3.5rem; margin-bottom: 1rem; }
+            h2 { font-weight: 500; color: var(--text); margin: 0 0 0.75rem 0; font-size: 1.5rem; }
+            p { color: #555; line-height: 1.5; margin: 0 0 1.5rem 0; font-size: 0.95rem; }
+            .badge { display: inline-block; padding: 6px 14px; background: #f9dedc; color: #410002; border-radius: 20px; font-size: 0.8rem; font-weight: 500; margin-bottom: 1.5rem; }
+        </style>
+    </head>
+    <body>
+        <div class="expired-card">
+            <div class="icon-wrapper">🚫</div>
+            <div class="badge">Link Unavailable</div>
+            <h2>Access Revoked</h2>
+            <p><?= htmlspecialchars($message) ?></p>
+            <p style="font-size: 0.85rem; color: #888;">You can no longer view or upload files using this link.</p>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
 $is_shared_view = false;
 $is_single_file_share = false;
 $single_shared_file_info = null;
 $share_token = $_GET['share'] ?? null;
 $allow_upload = false;
 
-if ($share_token && preg_match('/^[a-f0-9]{32}$/', $share_token)) {
-    $sharesDir = __DIR__ . '/.shares';
-    $shareFile = $sharesDir . '/' . $share_token;
-    if (file_exists($shareFile)) {
-        $content = file_get_contents($shareFile);
-        $shared_data = json_decode($content, true);
-        
-        if (is_array($shared_data)) {
-            $shared_relative_path = $shared_data['path'];
-            $allow_upload = $shared_data['allow_upload'] ?? false;
-        } else {
-            $shared_relative_path = trim($content);
-            $allow_upload = false;
-        }
-        
-        $shared_full_path = safePath($realBase . DIRECTORY_SEPARATOR . $shared_relative_path, $realBase);
-
-        if ($shared_full_path && file_exists($shared_full_path)) {
-            $is_shared_view = true;
-            if (is_file($shared_full_path)) {
-                $is_single_file_share = true;
-                $allow_upload = false; // Never allow upload on single file share
-                $baseDir = dirname($shared_full_path);
-                $realBase = realpath($baseDir);
-                $single_shared_file_info = $shared_full_path;
-            } else { // It's a directory
-                $baseDir = $shared_full_path; 
-                $realBase = realpath($baseDir); 
+if (isset($_GET['share'])) {
+    if ($share_token && preg_match('/^[a-f0-9]{32}$/', $share_token)) {
+        $sharesDir = __DIR__ . '/.shares';
+        $shareFile = $sharesDir . '/' . $share_token;
+        if (file_exists($shareFile)) {
+            $content = file_get_contents($shareFile);
+            $shared_data = json_decode($content, true);
+            
+            if (is_array($shared_data)) {
+                $shared_relative_path = $shared_data['path'];
+                $allow_upload = $shared_data['allow_upload'] ?? false;
+            } else {
+                $shared_relative_path = trim($content);
+                $allow_upload = false;
             }
+            
+            $shared_full_path = safePath($realBase . DIRECTORY_SEPARATOR . $shared_relative_path, $realBase);
+
+            if ($shared_full_path && file_exists($shared_full_path)) {
+                $is_shared_view = true;
+                if (is_file($shared_full_path)) {
+                    $is_single_file_share = true;
+                    $allow_upload = false; // Never allow upload on single file share
+                    $baseDir = dirname($shared_full_path);
+                    $realBase = realpath($baseDir);
+                    $single_shared_file_info = $shared_full_path;
+                } else { // It's a directory
+                    $baseDir = $shared_full_path; 
+                    $realBase = realpath($baseDir); 
+                }
+            } else {
+                renderInvalidSharePage("The item associated with this shared link has been deleted or moved.");
+            }
+        } else {
+            renderInvalidSharePage("This shared link has been deleted or revoked by the owner.");
         }
+    } else {
+        renderInvalidSharePage("Invalid share link provided.");
     }
 }
 
@@ -143,6 +183,69 @@ $globalIndexFile = __DIR__ . '/.index.json';
 function invalidateCache($statsCacheFile, $globalIndexFile) {
     if (file_exists($statsCacheFile)) @unlink($statsCacheFile);
     if (file_exists($globalIndexFile)) @unlink($globalIndexFile);
+}
+
+function triggerChangeEvent($action = 'change', $details = []) {
+    global $cacheFile, $globalIndexFile;
+    invalidateCache($cacheFile, $globalIndexFile);
+    $lastChangeFile = __DIR__ . '/.last_change';
+    $data = [
+        'time' => microtime(true),
+        'action' => $action,
+        'details' => $details
+    ];
+    @file_put_contents($lastChangeFile, json_encode($data));
+}
+
+// ================= SERVER-SENT EVENTS (SSE) ENDPOINT =================
+if (isset($_GET['action']) && $_GET['action'] === 'sse') {
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+    while (ob_get_level()) {
+        ob_end_clean();
+    }
+
+    header('Content-Type: text/event-stream');
+    header('Cache-Control: no-cache, no-transform');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+
+    $lastSeen = (float)($_GET['last'] ?? microtime(true));
+    $lastChangeFile = __DIR__ . '/.last_change';
+
+    echo "event: connected\ndata: " . json_encode(['status' => 'connected', 'time' => microtime(true)]) . "\n\n";
+    flush();
+
+    $startTime = time();
+    $maxExecutionTime = 40;
+
+    while ((time() - $startTime) < $maxExecutionTime) {
+        if (connection_aborted()) {
+            break;
+        }
+
+        if (file_exists($lastChangeFile)) {
+            $content = @file_get_contents($lastChangeFile);
+            if ($content) {
+                $changeData = json_decode($content, true);
+                if (is_array($changeData) && isset($changeData['time'])) {
+                    if ($changeData['time'] > $lastSeen) {
+                        $lastSeen = $changeData['time'];
+                        echo "event: file_change\n";
+                        echo "data: " . json_encode($changeData) . "\n\n";
+                        flush();
+                    }
+                }
+            }
+        }
+
+        echo ": ping\n\n";
+        flush();
+
+        usleep(500000);
+    }
+    exit;
 }
 
 function getGlobalIndex($realBase, $globalIndexFile, $force = false) {
@@ -290,7 +393,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
                 }
             }
         }
-        if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
+        if ($successCount > 0) triggerChangeEvent('upload', ['count' => $successCount, 'dir' => $relativeDir]);
         sendJsonResponse(['success' => true, 'count' => $successCount]);
     }
 }
@@ -303,7 +406,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
             $file = safePath($realBase . DIRECTORY_SEPARATOR . $itemPath, $realBase);
             if ($file && $file !== $realBase) recursiveDelete($file);
         }
-        invalidateCache($cacheFile, $globalIndexFile);
+        triggerChangeEvent('bulk_delete');
         getGlobalIndex($adminRealBase, $globalIndexFile, true);
         if ($isAjax) sendJsonResponse(['success' => true]);
         header('Location: ' . $_SERVER['PHP_SELF'] . '?dir=' . urlencode($relativeDir));
@@ -327,7 +430,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
                 }
             }
             if ($successCount > 0) {
-                invalidateCache($cacheFile, $globalIndexFile);
+                triggerChangeEvent('bulk_move');
                 getGlobalIndex($adminRealBase, $globalIndexFile, true);
             }
         } else {
@@ -352,7 +455,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
                     $successCount++;
                 }
             }
-            if ($successCount > 0) invalidateCache($cacheFile, $globalIndexFile);
+            if ($successCount > 0) triggerChangeEvent('bulk_copy');
         } else {
             $error = "Invalid target directory.";
         }
@@ -430,10 +533,106 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $token = bin2hex(random_bytes(16));
         $shareData = [
             'path' => $path_to_share,
-            'allow_upload' => $allow_upload_req
+            'allow_upload' => $allow_upload_req,
+            'created_at' => time()
         ];
         file_put_contents($sharesDir . '/' . $token, json_encode($shareData));
+        triggerChangeEvent('create_share');
         sendJsonResponse(['success' => true, 'token' => $token]);
+    }
+
+    // 4. SHARED LINKS MANAGEMENT
+    if (isset($_GET['action']) && $_GET['action'] === 'get_shares') {
+        $sharesDir = __DIR__ . '/.shares';
+        $shares = [];
+        if (file_exists($sharesDir)) {
+            $files = glob($sharesDir . '/*');
+            foreach ($files as $file) {
+                if (is_file($file) && preg_match('/^[a-f0-9]{32}$/', basename($file))) {
+                    $token = basename($file);
+                    $content = file_get_contents($file);
+                    $data = json_decode($content, true);
+                    if (is_array($data)) {
+                        $path = $data['path'];
+                        $allow_upload = !empty($data['allow_upload']);
+                        $created_at = $data['created_at'] ?? filemtime($file);
+                    } else {
+                        $path = trim($content);
+                        $allow_upload = false;
+                        $created_at = filemtime($file);
+                    }
+                    
+                    $fullPath = safePath($adminRealBase . DIRECTORY_SEPARATOR . $path, $adminRealBase);
+                    $exists = ($fullPath && file_exists($fullPath));
+                    $isDir = $exists ? is_dir($fullPath) : (strpos(basename($path), '.') === false);
+                    $name = $path ? basename($path) : 'Root Storage';
+                    
+                    $shares[] = [
+                        'token' => $token,
+                        'path' => $path,
+                        'name' => $name,
+                        'allow_upload' => $allow_upload,
+                        'created_at' => $created_at,
+                        'created_at_f' => date("m/d/Y, H:i", $created_at),
+                        'exists' => $exists,
+                        'isDir' => $isDir
+                    ];
+                }
+            }
+        }
+        usort($shares, function($a, $b) { return $b['created_at'] - $a['created_at']; });
+        sendJsonResponse(['success' => true, 'shares' => $shares]);
+    }
+
+    if (isset($_POST['action']) && $_POST['action'] === 'delete_share') {
+        $token = $_POST['token'] ?? '';
+        if (preg_match('/^[a-f0-9]{32}$/', $token)) {
+            $shareFile = __DIR__ . '/.shares/' . $token;
+            if (file_exists($shareFile)) {
+                @unlink($shareFile);
+                triggerChangeEvent('delete_share');
+                sendJsonResponse(['success' => true]);
+            }
+        }
+        sendJsonResponse(['success' => false, 'error' => 'Share link not found or invalid.']);
+    }
+
+    if (isset($_POST['action']) && $_POST['action'] === 'bulk_delete_shares') {
+        $tokens = $_POST['tokens'] ?? [];
+        if (is_string($tokens)) $tokens = json_decode($tokens, true) ?: [$tokens];
+        $deleted = 0;
+        if (is_array($tokens)) {
+            foreach ($tokens as $token) {
+                if (preg_match('/^[a-f0-9]{32}$/', $token)) {
+                    $shareFile = __DIR__ . '/.shares/' . $token;
+                    if (file_exists($shareFile)) {
+                        if (@unlink($shareFile)) $deleted++;
+                    }
+                }
+            }
+        }
+        if ($deleted > 0) triggerChangeEvent('bulk_delete_shares');
+        sendJsonResponse(['success' => true, 'deleted' => $deleted]);
+    }
+
+    if (isset($_POST['action']) && $_POST['action'] === 'toggle_share_upload') {
+        $token = $_POST['token'] ?? '';
+        $allowUpload = isset($_POST['allow_upload']) && ($_POST['allow_upload'] == '1' || $_POST['allow_upload'] === 'true');
+        if (preg_match('/^[a-f0-9]{32}$/', $token)) {
+            $shareFile = __DIR__ . '/.shares/' . $token;
+            if (file_exists($shareFile)) {
+                $content = file_get_contents($shareFile);
+                $data = json_decode($content, true);
+                if (!is_array($data)) {
+                    $data = ['path' => trim($content)];
+                }
+                $data['allow_upload'] = $allowUpload;
+                file_put_contents($shareFile, json_encode($data));
+                triggerChangeEvent('toggle_share_upload');
+                sendJsonResponse(['success' => true, 'allow_upload' => $allowUpload]);
+            }
+        }
+        sendJsonResponse(['success' => false, 'error' => 'Share link not found.']);
     }
 
     if (isset($_GET['action']) && $_GET['action'] === 'get_full_index') {
@@ -509,7 +708,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
                 if (!file_exists($newFolderPath)) {
                     if (@mkdir($newFolderPath, 0777, true)) {
                         $success = true;
-                        invalidateCache($cacheFile, $globalIndexFile);
+                        triggerChangeEvent('newfolder', ['dir' => $relativeDir]);
                     }
                 } else {
                     $success = true; // Already exists
@@ -524,7 +723,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $file = safePath($realBase . DIRECTORY_SEPARATOR . $_GET['delete'], $realBase);
         if ($file && $file !== $realBase) {
             if (recursiveDelete($file)) {
-                invalidateCache($cacheFile, $globalIndexFile);
+                triggerChangeEvent('delete');
                 getGlobalIndex($adminRealBase, $globalIndexFile, true);
             }
         }
@@ -537,7 +736,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
         $newName = basename($_POST['rename_new']);
         if ($old && $old !== $realBase && !empty($newName)) {
             if (rename($old, dirname($old) . DIRECTORY_SEPARATOR . $newName)) {
-                invalidateCache($cacheFile, $globalIndexFile);
+                triggerChangeEvent('rename');
                 getGlobalIndex($adminRealBase, $globalIndexFile, true);
             }
         }
@@ -551,7 +750,7 @@ if (!$is_shared_view || ($is_shared_view && $allow_upload)) {
             if (is_dir($file) && ($file === $targetDir || strpos($targetDir, $file . DIRECTORY_SEPARATOR) === 0)) {}
             else { 
                 if (rename($file, $targetDir . DIRECTORY_SEPARATOR . basename($file))) {
-                    invalidateCache($cacheFile, $globalIndexFile);
+                    triggerChangeEvent('move');
                     getGlobalIndex($adminRealBase, $globalIndexFile, true);
                 }
             }
@@ -723,6 +922,7 @@ if ($isAjax) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Material Explorer Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📂</text></svg>">
     <link rel="stylesheet" href="index.css" />
     <script src="util-lib/pdf.min.js"></script>
     <script>
@@ -758,6 +958,7 @@ if ($isAjax) {
         <nav style="display: flex; flex-direction: column; gap: 12px;">
             <button id="myFilesBtn" class="btn btn-outline" style="justify-content: flex-start; border: none; background: rgb(238, 238, 238); color: var(--on-surface);">📁 My Files</button>
             <button id="storageBtn" class="btn btn-outline" style="justify-content: flex-start; border: none; background: transparent; color: var(--on-surface);">☁️ My Storage</button>
+            <button id="sharedLinksBtn" class="btn btn-outline" style="justify-content: flex-start; border: none; background: transparent; color: var(--on-surface);">🔗 Shared Links</button>
         </nav>
 
         <div class="sidebar-bottom">
@@ -929,6 +1130,31 @@ if ($isAjax) {
                     </div>
                 </div>
             </div>
+
+            <div id="sharedLinksView" style="display: none; flex-direction: column; gap: 20px; padding: 24px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+                    <div>
+                        <h2 style="font-size: 1.5rem; font-weight: 400; margin: 0;">Shared Links Management</h2>
+                        <p style="margin: 4px 0 0 0; color: #666; font-size: 0.85rem;">View and manage public share links. Deleting a link revokes access and prevents unauthorized uploads.</p>
+                    </div>
+                    <div style="display: flex; gap: 10px; align-items: center;">
+                        <button id="bulkDeleteSharesBtn" class="btn btn-tonal-danger" style="display: none;" onclick="submitBulkDeleteShares()">🗑️ Revoke Selected</button>
+                        <button class="btn btn-outline" onclick="fetchSharedLinksData()" style="padding: 6px 12px; font-size: 0.85rem;">🔄 Refresh</button>
+                    </div>
+                </div>
+
+                <div class="data-table-container" style="border: 1px solid #eee; border-radius: 12px; overflow: hidden; background: #fff;">
+                    <div class="table-header" style="grid-template-columns: 40px 2fr 1.5fr 1.2fr 1fr 140px;">
+                        <div style="text-align:center"><input type="checkbox" id="selectAllShares" onclick="toggleSelectAllShares(this)"></div>
+                        <div>Shared Item</div>
+                        <div>Permissions</div>
+                        <div>Created Date</div>
+                        <div>Status</div>
+                        <div style="text-align:right">Actions</div>
+                    </div>
+                    <div id="sharedLinksList"></div>
+                </div>
+            </div>
         </div>
     </main>
     
@@ -1041,6 +1267,7 @@ if ($isAjax) {
     
     window.onload = () => {
         fetchFullIndex();
+        initSSE();
         if (!isSharedView || (isSharedView && allowUpload)) setupDragAndDrop();
         
         const params = new URLSearchParams(window.location.search);
@@ -1048,8 +1275,18 @@ if ($isAjax) {
             showStorageView();
             const storageBtn = document.getElementById('storageBtn');
             const myFilesBtn = document.getElementById('myFilesBtn');
+            const sharedLinksBtn = document.getElementById('sharedLinksBtn');
             if (storageBtn) storageBtn.style.background = "#eee";
             if (myFilesBtn) myFilesBtn.style.background = "";
+            if (sharedLinksBtn) sharedLinksBtn.style.background = "";
+        } else if ((params.get('view') === 'shares' || params.get('shares') === '1') && !isSharedView) {
+            showSharedLinksView();
+            const sharedLinksBtn = document.getElementById('sharedLinksBtn');
+            const myFilesBtn = document.getElementById('myFilesBtn');
+            const storageBtn = document.getElementById('storageBtn');
+            if (sharedLinksBtn) sharedLinksBtn.style.background = "#eee";
+            if (myFilesBtn) myFilesBtn.style.background = "";
+            if (storageBtn) storageBtn.style.background = "";
         } else {
             renderExplorer();
             const myFilesBtn = document.getElementById('myFilesBtn');

@@ -1057,3 +1057,93 @@ input[type="checkbox"] {
 .btn-close:hover {
     background: #f5f5f5;
 }
+
+/* Shared Links Management Styles */
+.share-item-row {
+    display: grid;
+    grid-template-columns: 40px 2fr 1.5fr 1.2fr 1fr 140px;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid #eee;
+    font-size: 0.9rem;
+    transition: background 0.15s ease;
+    cursor: pointer;
+    user-select: none;
+}
+
+.share-item-row:hover {
+    background: #f8f9fc;
+}
+
+.share-item-row.selected {
+    background: #e8f0fe !important;
+}
+
+.share-item-row input[type="checkbox"],
+#selectAllShares {
+    /* display: inline-block !important; */
+    cursor: pointer;
+}
+
+.share-badge-upload {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #e6f4ea;
+    color: #137333;
+    border-radius: 16px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid #ceead6;
+}
+
+.share-badge-view {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    background: #e8f0fe;
+    color: #1a73e8;
+    border-radius: 16px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid #d2e3fc;
+}
+
+.share-badge-active {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: #edf2f7;
+    color: #2d3748;
+    border-radius: 12px;
+    font-size: 0.75rem;
+}
+
+.share-badge-missing {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    background: #fce8e6;
+    color: #c5221f;
+    border-radius: 12px;
+    font-size: 0.75rem;
+}
+
+.share-action-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 6px;
+    border-radius: 50%;
+    color: #5f6368;
+    transition: background 0.2s, color 0.2s;
+}
+
+.share-action-btn:hover {
+    background: #eee;
+    color: #1a1a1a;
+}

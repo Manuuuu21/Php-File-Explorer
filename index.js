@@ -232,15 +232,19 @@ let storagePage = 1;
 let storageLoading = false;
 let storageHasMore = true;
 
+let currentSharesData = [];
+
 function showStorageView() {
     currentDir = ""; // Reset current directory to root when entering storage view
     const explorerBody = document.querySelector('.explorer-body > .data-table-container');
     const storageView = document.getElementById('storageView');
+    const sharedLinksView = document.getElementById('sharedLinksView');
     const breadcrumbBar = document.querySelector('.breadcrumb-bar');
     const paginationContainer = document.getElementById('paginationContainer');
     const itemCounter = document.getElementById('itemCounter');
 
     if (explorerBody) explorerBody.style.display = 'none';
+    if (sharedLinksView) sharedLinksView.style.display = 'none';
     if (breadcrumbBar) breadcrumbBar.style.display = 'none';
     if (paginationContainer) paginationContainer.style.display = 'none';
     if (itemCounter) itemCounter.style.display = 'none';
@@ -268,12 +272,313 @@ function hideStorageView(skipRender = false) {
     if (!skipRender) renderExplorer();
 }
 
+function showSharedLinksView() {
+    const explorerBody = document.querySelector('.explorer-body > .data-table-container');
+    const storageView = document.getElementById('storageView');
+    const sharedLinksView = document.getElementById('sharedLinksView');
+    const breadcrumbBar = document.querySelector('.breadcrumb-bar');
+    const paginationContainer = document.getElementById('paginationContainer');
+    const itemCounter = document.getElementById('itemCounter');
+
+    if (explorerBody) explorerBody.style.display = 'none';
+    if (storageView) storageView.style.display = 'none';
+    if (breadcrumbBar) breadcrumbBar.style.display = 'none';
+    if (paginationContainer) paginationContainer.style.display = 'none';
+    if (itemCounter) itemCounter.style.display = 'none';
+    if (sharedLinksView) sharedLinksView.style.display = 'flex';
+
+    fetchSharedLinksData();
+    toggleSidebar(false);
+}
+
+function hideSharedLinksView(skipRender = false) {
+    const explorerBody = document.querySelector('.explorer-body > .data-table-container');
+    const sharedLinksView = document.getElementById('sharedLinksView');
+    const breadcrumbBar = document.querySelector('.breadcrumb-bar');
+    const itemCounter = document.getElementById('itemCounter');
+
+    if (sharedLinksView) sharedLinksView.style.display = 'none';
+    if (explorerBody) explorerBody.style.display = 'block';
+    if (breadcrumbBar) breadcrumbBar.style.display = 'block';
+    if (itemCounter) itemCounter.style.display = 'block';
+
+    if (!skipRender) renderExplorer();
+}
+
+async function fetchSharedLinksData() {
+    const list = document.getElementById('sharedLinksList');
+    if (!list) return;
+    list.innerHTML = '<div style="padding: 24px; text-align: center; color: #666;">Loading shared links...</div>';
+    
+    try {
+        const res = await fetch(`?action=get_shares&ajax=1&_t=${Date.now()}`);
+        const data = await res.json();
+        if (data.success) {
+            currentSharesData = data.shares || [];
+            renderSharedLinksList(currentSharesData);
+        } else {
+            list.innerHTML = `<div style="padding: 24px; text-align: center; color: var(--danger);">${escapeHtml(data.error || 'Failed to load shared links.')}</div>`;
+        }
+    } catch(e) {
+        console.error(e);
+        list.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--danger);">Failed to load shared links.</div>';
+    }
+}
+
+let lastSelectedShareToken = null;
+
+function renderSharedLinksList(shares) {
+    const list = document.getElementById('sharedLinksList');
+    const selectAll = document.getElementById('selectAllShares');
+    const bulkBtn = document.getElementById('bulkDeleteSharesBtn');
+    if (selectAll) selectAll.checked = false;
+    if (bulkBtn) bulkBtn.style.display = 'none';
+
+    if (!list) return;
+    if (!shares || shares.length === 0) {
+        list.innerHTML = `
+            <div style="padding: 40px 20px; text-align: center; color: #888;">
+                <div style="font-size: 2.5rem; margin-bottom: 8px;">🔗</div>
+                <div style="font-weight: 500; font-size: 1.05rem; color: #333; margin-bottom: 4px;">No Shared Links</div>
+                <div style="font-size: 0.85rem; max-width: 380px; margin: 0 auto; color: #666;">You haven't created any shared links yet. Share folders or files from your file explorer to manage public access here.</div>
+            </div>`;
+        return;
+    }
+
+    list.innerHTML = shares.map(share => {
+        const fullUrl = `${window.location.origin}${window.location.pathname}?share=${share.token}`;
+        const isDir = share.isDir;
+        const icon = isDir ? getFileIcon({ isDir: true }) : getFileIcon({ name: share.name, isDir: false });
+        
+        return `
+            <div class="share-item-row" id="share-row-${share.token}" onclick="handleShareRowClick(event, '${share.token}')">
+                <div style="text-align: center;">
+                    <input type="checkbox" name="selected_shares[]" value="${share.token}" onchange="updateSharesBulkBtn()" onclick="event.stopPropagation()">
+                </div>
+                <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
+                    <span style="flex-shrink: 0;">${icon}</span>
+                    <div style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                        <div style="font-weight: 500; color: #1c1b1f;" title="${escapeHtml(share.name)}">${escapeHtml(share.name)}</div>
+                        <div style="font-size: 0.75rem; color: #777;" title="${escapeHtml(share.path)}">${escapeHtml(share.path || 'Root Storage')}</div>
+                    </div>
+                </div>
+                <div>
+                    ${share.allow_upload ? 
+                        `<span class="share-badge-upload" onclick="event.stopPropagation(); toggleShareUploadPermission('${share.token}', false)" title="Click to disable uploads">⬆️ View & Upload ⚙️</span>` : 
+                        `<span class="share-badge-view" onclick="event.stopPropagation(); toggleShareUploadPermission('${share.token}', true)" title="Click to allow uploads">🔒 View Only ⚙️</span>`
+                    }
+                </div>
+                <div style="color: #666; font-size: 0.85rem;">${share.created_at_f}</div>
+                <div>
+                    ${share.exists ? 
+                        `<span class="share-badge-active">✅ Active</span>` : 
+                        `<span class="share-badge-missing">⚠️ Path Deleted</span>`
+                    }
+                </div>
+                <div style="text-align: right; display: flex; justify-content: flex-end; gap: 4px;">
+                    <button class="share-action-btn" title="Copy Share Link" onclick="event.stopPropagation(); copyShareUrl('${fullUrl}')">📋</button>
+                    <button class="share-action-btn" title="Open Share Link" onclick="event.stopPropagation(); window.open('${fullUrl}', '_blank')">🌐</button>
+                    <button class="share-action-btn" title="Revoke & Delete Share Link" style="color: var(--danger);" onclick="event.stopPropagation(); deleteShareLink('${share.token}', '${escapeHtml(share.name)}')">🗑️</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+
+    updateSharesBulkBtn();
+}
+
+function handleShareRowClick(e, token) {
+    if (e.target.closest('button, a, .share-badge-upload, .share-badge-view')) {
+        return;
+    }
+
+    const checkbox = document.querySelector(`input[name="selected_shares[]"][value="${token}"]`);
+    if (!checkbox) return;
+
+    if (e.ctrlKey || e.metaKey) {
+        checkbox.checked = !checkbox.checked;
+        lastSelectedShareToken = token;
+    } else if (e.shiftKey && lastSelectedShareToken) {
+        const allCheckboxes = Array.from(document.querySelectorAll('input[name="selected_shares[]"]'));
+        const lastIdx = allCheckboxes.findIndex(cb => cb.value === lastSelectedShareToken);
+        const currIdx = allCheckboxes.findIndex(cb => cb.value === token);
+        if (lastIdx !== -1 && currIdx !== -1) {
+            const start = Math.min(lastIdx, currIdx);
+            const end = Math.max(lastIdx, currIdx);
+            for (let i = start; i <= end; i++) {
+                allCheckboxes[i].checked = true;
+            }
+        }
+    } else {
+        checkbox.checked = !checkbox.checked;
+        lastSelectedShareToken = token;
+    }
+
+    updateSharesBulkBtn();
+}
+
+function copyShareUrl(url) {
+    navigator.clipboard.writeText(url).then(() => {
+        showSnackbar('Share link copied to clipboard!', { actionText: '' });
+    }).catch(() => {
+        uiAlert('Share URL: ' + url);
+    });
+}
+
+async function toggleShareUploadPermission(token, newAllowUpload) {
+    const fd = new FormData();
+    fd.append('action', 'toggle_share_upload');
+    fd.append('token', token);
+    fd.append('allow_upload', newAllowUpload ? '1' : '0');
+
+    try {
+        const res = await (await fetch('?ajax=1', { method: 'POST', body: fd })).json();
+        if (res.success) {
+            showSnackbar(newAllowUpload ? 'Uploads enabled for this share link' : 'Uploads disabled (View only)', { actionText: '' });
+            fetchSharedLinksData();
+        } else {
+            uiAlert(res.error || 'Failed to update share permissions.');
+        }
+    } catch(e) {
+        uiAlert('Failed to update share permissions.');
+    }
+}
+
+async function deleteShareLink(token, name) {
+    uiConfirm(`Revoke share link for "${name}"?\n\nAnyone with this link will immediately lose access and will not be able to view or upload files.`, async () => {
+        const fd = new FormData();
+        fd.append('action', 'delete_share');
+        fd.append('token', token);
+
+        try {
+            const res = await (await fetch('?ajax=1', { method: 'POST', body: fd })).json();
+            if (res.success) {
+                showSnackbar('Share link revoked successfully', { actionText: '' });
+                fetchSharedLinksData();
+            } else {
+                uiAlert(res.error || 'Failed to delete share link.');
+            }
+        } catch(e) {
+            uiAlert('Failed to delete share link.');
+        }
+    });
+}
+
+function toggleSelectAllShares(master) {
+    document.querySelectorAll('input[name="selected_shares[]"]').forEach(cb => {
+        cb.checked = master.checked;
+    });
+    updateSharesBulkBtn();
+}
+
+function updateSharesBulkBtn() {
+    const allShares = document.querySelectorAll('input[name="selected_shares[]"]');
+    const checked = document.querySelectorAll('input[name="selected_shares[]"]:checked');
+    const bulkBtn = document.getElementById('bulkDeleteSharesBtn');
+    const selectAll = document.getElementById('selectAllShares');
+
+    allShares.forEach(cb => {
+        const row = document.getElementById(`share-row-${cb.value}`);
+        if (row) {
+            if (cb.checked) {
+                row.classList.add('selected');
+            } else {
+                row.classList.remove('selected');
+            }
+        }
+    });
+
+    if (selectAll) {
+        if (allShares.length > 0 && checked.length === allShares.length) {
+            selectAll.checked = true;
+            selectAll.indeterminate = false;
+        } else if (checked.length > 0) {
+            selectAll.checked = false;
+            selectAll.indeterminate = true;
+        } else {
+            selectAll.checked = false;
+            selectAll.indeterminate = false;
+        }
+    }
+
+    if (bulkBtn) {
+        if (checked.length > 0) {
+            bulkBtn.style.display = 'inline-flex';
+            bulkBtn.innerText = `🗑️ Revoke Selected (${checked.length})`;
+        } else {
+            bulkBtn.style.display = 'none';
+        }
+    }
+}
+
+async function submitBulkDeleteShares() {
+    const checked = Array.from(document.querySelectorAll('input[name="selected_shares[]"]:checked')).map(c => c.value);
+    if (checked.length === 0) return;
+
+    uiConfirm(`Revoke ${checked.length} selected shared links?\n\nRecipients will immediately lose access and won't be able to view or upload to your storage.`, async () => {
+        const fd = new FormData();
+        fd.append('action', 'bulk_delete_shares');
+        checked.forEach(t => fd.append('tokens[]', t));
+
+        try {
+            const res = await (await fetch('?ajax=1', { method: 'POST', body: fd })).json();
+            if (res.success) {
+                showSnackbar(`${res.deleted || checked.length} shared links revoked`, { actionText: '' });
+                fetchSharedLinksData();
+            } else {
+                uiAlert(res.error || 'Failed to revoke shared links.');
+            }
+        } catch(e) {
+            uiAlert('Failed to revoke shared links.');
+        }
+    });
+}
+
+document.addEventListener('keydown', (e) => {
+    const sharedLinksView = document.getElementById('sharedLinksView');
+    if (!sharedLinksView || sharedLinksView.style.display === 'none') {
+        return;
+    }
+
+    const activeEl = document.activeElement;
+    if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT' || activeEl.isContentEditable)) {
+        return;
+    }
+
+    const activeModal = document.querySelector('.modal.active');
+    if (activeModal) return;
+
+    const allCheckboxes = Array.from(document.querySelectorAll('input[name="selected_shares[]"]'));
+    if (allCheckboxes.length === 0) return;
+
+    const checkedBoxes = allCheckboxes.filter(cb => cb.checked);
+
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+        e.preventDefault();
+        if (checkedBoxes.length === allCheckboxes.length) {
+            submitBulkDeleteShares();
+        } else {
+            allCheckboxes.forEach(cb => { cb.checked = true; });
+            updateSharesBulkBtn();
+        }
+        return;
+    }
+
+    if (e.key === 'Delete' || e.key === 'Backspace' || ((e.ctrlKey || e.metaKey) && e.key === 'Delete')) {
+        if (checkedBoxes.length > 0) {
+            e.preventDefault();
+            submitBulkDeleteShares();
+        }
+        return;
+    }
+});
+
 async function fetchStorageData() {
     if (storageLoading || !storageHasMore) return;
     storageLoading = true;
 
     try {
-        const response = await fetch(`?storage=1&page=${storagePage}&ajax=1`);
+        const response = await fetch(`?storage=1&page=${storagePage}&ajax=1&_t=${Date.now()}`);
         const data = await response.json();
 
         if (storagePage === 1) {
@@ -857,10 +1162,10 @@ async function fetchExplorer(dir, search = "", page = 1, updateHistory = true, f
     }
 
     try {
-        let url = `?dir=${encodeURIComponent(dir)}&search=${encodeURIComponent(search)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1`;
+        let url = `?dir=${encodeURIComponent(dir)}&search=${encodeURIComponent(search)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1&_t=${Date.now()}`;
         if (isSharedView) {
             const shareToken = new URLSearchParams(window.location.search).get('share');
-            url = `?share=${shareToken}&dir=${encodeURIComponent(dir)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1`;
+            url = `?share=${shareToken}&dir=${encodeURIComponent(dir)}&page=${page}&sort=${sortKey}&order=${sortOrder}&ajax=1&_t=${Date.now()}`;
         }
         
         const response = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
@@ -1241,15 +1546,19 @@ function toggleUploadContainer() {
 }
 
 function setupDragAndDrop() {
-    // Storage Button
     const storageBtn = document.getElementById('storageBtn');
+    const myFilesBtn = document.getElementById('myFilesBtn');
+    const sharedLinksBtn = document.getElementById('sharedLinksBtn');
+
+    // Storage Button
     if (storageBtn) {
         storageBtn.addEventListener('click', (e) => {
             e.preventDefault();
+            hideSharedLinksView(true);
             showStorageView();
             storageBtn.style.background = "#eee";
-            const myFilesBtn = document.getElementById('myFilesBtn');
             if (myFilesBtn) myFilesBtn.style.background = "";
+            if (sharedLinksBtn) sharedLinksBtn.style.background = "";
             
             const url = new URL(window.location.pathname, window.location.origin);
             url.searchParams.set('mystorage', 'quota');
@@ -1257,14 +1566,31 @@ function setupDragAndDrop() {
         });
     }
 
+    // Shared Links Button
+    if (sharedLinksBtn) {
+        sharedLinksBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            hideStorageView(true);
+            showSharedLinksView();
+            sharedLinksBtn.style.background = "#eee";
+            if (myFilesBtn) myFilesBtn.style.background = "";
+            if (storageBtn) storageBtn.style.background = "";
+
+            const url = new URL(window.location.pathname, window.location.origin);
+            url.searchParams.set('view', 'shares');
+            window.history.pushState({}, '', url);
+        });
+    }
+
     // My Files Button
-    const myFilesBtn = document.getElementById('myFilesBtn');
     if (myFilesBtn) {
         myFilesBtn.addEventListener('click', (e) => {
             myFilesBtn.style.background = "#eee";
             if (storageBtn) storageBtn.style.background = "";
+            if (sharedLinksBtn) sharedLinksBtn.style.background = "";
             e.preventDefault();
-            hideStorageView();
+            hideStorageView(true);
+            hideSharedLinksView();
             toggleSidebar(false);
             
             const url = new URL(window.location.pathname, window.location.origin);
@@ -1293,10 +1619,17 @@ function setupDragAndDrop() {
         });
     }
 
-    // Handle back from storage (e.g. clicking Root or other folders)
+    // Handle back from storage / shared links (e.g. clicking Root or other folders)
     const originalFetchExplorer = fetchExplorer;
     fetchExplorer = function(...args) {
         hideStorageView();
+        hideSharedLinksView();
+        const myFilesBtn = document.getElementById('myFilesBtn');
+        const storageBtn = document.getElementById('storageBtn');
+        const sharedLinksBtn = document.getElementById('sharedLinksBtn');
+        if (myFilesBtn) myFilesBtn.style.background = "#eee";
+        if (storageBtn) storageBtn.style.background = "";
+        if (sharedLinksBtn) sharedLinksBtn.style.background = "";
         return originalFetchExplorer.apply(this, args);
     };
 
@@ -2605,9 +2938,78 @@ function moveModalSelect(path) {
 async function fetchFullIndex() {
     if (isSharedView) return;
     try {
-        const response = await fetch('?action=get_full_index', { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+        const response = await fetch(`?action=get_full_index&_t=${Date.now()}`, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
         fullIndex = await response.json();
     } catch (e) {
         console.error("Failed to fetch full index", e);
     }
+}
+
+let sseSource = null;
+let sseLastTime = 0;
+
+function initSSE() {
+    if (typeof EventSource === 'undefined') {
+        console.warn("Server-Sent Events (EventSource) not supported by this browser.");
+        return;
+    }
+
+    if (sseSource) {
+        sseSource.close();
+        sseSource = null;
+    }
+
+    const params = new URLSearchParams(window.location.search);
+    const shareToken = params.get('share');
+    let sseUrl = '?action=sse';
+    if (shareToken) {
+        sseUrl += '&share=' + encodeURIComponent(shareToken);
+    }
+    if (sseLastTime > 0) {
+        sseUrl += '&last=' + sseLastTime;
+    }
+
+    sseSource = new EventSource(sseUrl);
+
+    sseSource.addEventListener('connected', (e) => {
+        console.log('[SSE] Connected to real-time sync server');
+    });
+
+    sseSource.addEventListener('file_change', async (e) => {
+        try {
+            const data = JSON.parse(e.data);
+            if (data.time) {
+                sseLastTime = data.time;
+            }
+            console.log('[SSE] File change detected:', data);
+
+            // Invalidate client-side memory cache
+            fullIndex = null;
+
+            // Trigger real-time UI refresh based on current active view
+            const storageView = document.getElementById('storageView');
+            const sharedLinksView = document.getElementById('sharedLinksView');
+
+            if (sharedLinksView && sharedLinksView.style.display !== 'none') {
+                await fetchSharedLinksData();
+            } else if (storageView && storageView.style.display !== 'none') {
+                const list = document.getElementById('storageFileList');
+                if (list) list.innerHTML = '';
+                storagePage = 1;
+                storageHasMore = true;
+                await fetchStorageData();
+            } else {
+                // Main File Explorer view: force server fetch without updating history
+                await fetchExplorer(currentDir, currentSearch, currentPage, false, true);
+            }
+
+
+        } catch (err) {
+            console.error('[SSE] Error handling file_change event:', err);
+        }
+    });
+
+    sseSource.onerror = (err) => {
+        // EventSource will automatically attempt to reconnect
+    };
 }
