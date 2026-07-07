@@ -922,7 +922,6 @@ if ($isAjax) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Material Explorer Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📂</text></svg>">
     <link rel="stylesheet" href="index.css" />
     <script src="util-lib/pdf.min.js"></script>
     <script>
@@ -931,6 +930,7 @@ if ($isAjax) {
     </script>
     <script src="util-lib/ace.js"></script>
     <script src="util-lib/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs/qrcode.min.js"></script>
 </head>
 <body>
 
@@ -1207,32 +1207,43 @@ if ($isAjax) {
     <?php if (!$is_shared_view): ?>
     <div id="shareModal" class="modal">
         <div class="modal-content share-modal-content">
-            <div class="share-modal-body">
-                <h2 class="share-title">Share Link</h2>
-                <p class="share-subtitle">Anyone with this link can view and download.</p>
-                
-                <div class="share-input-group">
-                    <input type="text" id="shareLinkInput" class="share-input" readonly>
-                    <button class="btn-copy" id="copyShareBtn" onclick="copyShareLink()">Copy</button>
+            <div class="share-modal-grid">
+                <!-- Left panel: Share controls -->
+                <div class="share-modal-left">
+                    <h2 class="share-title">Share Link</h2>
+                    <p class="share-subtitle">Anyone with this link can view and download.</p>
+                    
+                    <div class="share-input-group">
+                        <input type="text" id="shareLinkInput" class="share-input" readonly>
+                        <button class="btn-copy" id="copyShareBtn" onclick="copyShareLink()">Copy</button>
+                    </div>
+                    
+                    <div id="shareUploadOption" class="advanced-permissions-box" style="display:none; margin-bottom: 12px;">
+                        <div class="advanced-header">
+                            <span class="advanced-title">🛡️ Advance Permissions</span>
+                            <select id="shareAllowUpload" class="advanced-select" onchange="updateShareLink()">
+                                <option value="0">NO</option>
+                                <option value="1">YES</option>
+                            </select>
+                        </div>
+                        <div id="sharePermissionText" class="permissions-list">
+                            <div class="permission-item"><img src="img-icon/file-icon/upload.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to upload files and folders</div>
+                            <div class="permission-item"><img src="img-icon/file-icon/new-folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to create new folders</div>
+                            <div class="permission-item"><img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to delete items</div>
+                        </div>
+                    </div>
+                    
+                    <div class="share-modal-footer" style="margin-top: auto;">
+                        <button class="btn-close" onclick="closeModal('shareModal')">Close</button>
+                    </div>
                 </div>
                 
-                <div id="shareUploadOption" class="advanced-permissions-box" style="display:none;">
-                    <div class="advanced-header">
-                        <span class="advanced-title">🛡️ Advance Permissions</span>
-                        <select id="shareAllowUpload" class="advanced-select" onchange="updateShareLink()">
-                            <option value="0">NO</option>
-                            <option value="1">YES</option>
-                        </select>
-                    </div>
-                    <div id="sharePermissionText" class="permissions-list">
-                        <div class="permission-item"><img src="img-icon/file-icon/upload.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to upload files and folders</div>
-                        <div class="permission-item"><img src="img-icon/file-icon/new-folder.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to create new folders</div>
-                        <div class="permission-item"><img src="img-icon/file-icon/delete.png" style="width:18px; height:18px; vertical-align:middle;" referrerPolicy="no-referrer" /> Allow viewers to delete items</div>
-                    </div>
-                </div>
-                
-                <div class="share-modal-footer">
-                    <button class="btn-close" onclick="closeModal('shareModal')">Close</button>
+                <!-- Right panel: QR Code visualization -->
+                <div class="share-modal-right">
+                    <h3 class="qr-title">QR Code</h3>
+                    <p class="qr-subtitle">Scan to access the link instantly.</p>
+                    <div id="shareQRCode" class="qr-code-box"></div>
+                    <button class="btn-qr-download" onclick="downloadQRCode()">💾 Download QR</button>
                 </div>
             </div>
         </div>

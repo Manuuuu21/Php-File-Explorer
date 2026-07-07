@@ -353,7 +353,7 @@ function renderSharedLinksList(shares) {
         return `
             <div class="share-item-row" id="share-row-${share.token}" onclick="handleShareRowClick(event, '${share.token}')">
                 <div style="text-align: center;">
-                    <input type="checkbox" name="selected_shares[]" value="${share.token}" onchange="updateSharesBulkBtn()" onclick="event.stopPropagation()">
+                    <input type="checkbox" name="selected_shares[]" value="${share.token}">
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden;">
                     <span style="flex-shrink: 0;">${icon}</span>
@@ -395,8 +395,12 @@ function handleShareRowClick(e, token) {
     const checkbox = document.querySelector(`input[name="selected_shares[]"][value="${token}"]`);
     if (!checkbox) return;
 
+    const clickedCheckboxDirectly = (e.target === checkbox);
+
     if (e.ctrlKey || e.metaKey) {
-        checkbox.checked = !checkbox.checked;
+        if (!clickedCheckboxDirectly) {
+            checkbox.checked = !checkbox.checked;
+        }
         lastSelectedShareToken = token;
     } else if (e.shiftKey && lastSelectedShareToken) {
         const allCheckboxes = Array.from(document.querySelectorAll('input[name="selected_shares[]"]'));
@@ -410,7 +414,13 @@ function handleShareRowClick(e, token) {
             }
         }
     } else {
-        checkbox.checked = !checkbox.checked;
+        const allCheckboxes = document.querySelectorAll('input[name="selected_shares[]"]');
+        allCheckboxes.forEach(cb => {
+            if (cb !== checkbox) {
+                cb.checked = false;
+            }
+        });
+        checkbox.checked = true;
         lastSelectedShareToken = token;
     }
 
@@ -2675,6 +2685,7 @@ async function sharePrompt() {
         if (res.success && res.token) {
             const shareUrl = `${window.location.origin}${window.location.pathname}?share=${res.token}`;
             document.getElementById('shareLinkInput').value = shareUrl;
+            generateShareQRCode(shareUrl);
             openModal('shareModal');
         } else {
             uiAlert(res.error || "Could not create share link.");
@@ -2696,6 +2707,7 @@ async function updateShareLink() {
         if (res.success && res.token) {
             const shareUrl = `${window.location.origin}${window.location.pathname}?share=${res.token}`;
             document.getElementById('shareLinkInput').value = shareUrl;
+            generateShareQRCode(shareUrl);
             const button = document.getElementById('copyShareBtn');
             if (button) button.textContent = 'Copy';
         }
@@ -2725,6 +2737,50 @@ function copyShareLink() {
         setTimeout(() => { button.textContent = 'Copy'; }, 2000);
     }
     showSnackbar("Link copied to clipboard.");
+}
+
+function generateShareQRCode(url) {
+    const qrContainer = document.getElementById('shareQRCode');
+    if (!qrContainer) return;
+    qrContainer.innerHTML = '';
+    try {
+        new QRCode(qrContainer, {
+            text: url,
+            width: 160,
+            height: 160,
+            colorDark : "#1a1a1a",
+            colorLight : "#ffffff",
+            correctLevel : QRCode.CorrectLevel.M
+        });
+    } catch (e) {
+        console.error("Error generating QR code:", e);
+        qrContainer.innerHTML = '<div style="color: #ea4335; font-size: 0.85rem; text-align: center;">Failed to generate QR Code</div>';
+    }
+}
+
+function downloadQRCode() {
+    const qrContainer = document.getElementById('shareQRCode');
+    if (!qrContainer) return;
+    const canvas = qrContainer.querySelector('canvas');
+    const img = qrContainer.querySelector('img');
+    let dataUrl = '';
+    
+    if (canvas) {
+        dataUrl = canvas.toDataURL("image/png");
+    } else if (img && img.src && img.src.startsWith('data:image')) {
+        dataUrl = img.src;
+    }
+    
+    if (dataUrl) {
+        const link = document.createElement('a');
+        link.download = `share_qrcode_${Date.now()}.png`;
+        link.href = dataUrl;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    } else {
+        uiAlert("QR code image is not ready for download.");
+    }
 }
 
 let moveModalDir = "";
