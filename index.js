@@ -2062,9 +2062,7 @@ function loadMedia() {
                 } else if (audioLoopMode === 'all') {
                     navigateMedia(1);
                 } else {
-                    if (currentMediaIndex < mediaItems.length - 1) {
-                        navigateMedia(1);
-                    }
+                    // Loop is off: stop playback and don't advance to the next track automatically
                 }
             };
             if (!audio.paused) disc.classList.add('playing');
