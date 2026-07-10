@@ -922,6 +922,7 @@ if ($isAjax) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Material Explorer Pro</title>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📂</text></svg>">
     <link rel="stylesheet" href="index.css" />
     <script src="util-lib/pdf.min.js"></script>
     <script>
@@ -1257,6 +1258,12 @@ if ($isAjax) {
         <div id="contextMenubulkMoveBtn" onclick="movePrompt()"><img src="img-icon/file-icon/move-file.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Move</div>
         <div id="contextMenubulkZipBtn" onclick="submitBulkZip()"><img src="img-icon/file-icon/zip.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Download as ZIP</div>
         <div id="contextMenubulkDeleteBtn" onclick="submitBulkDelete()"><img src="img-icon/file-icon/delete.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Delete</div>
+    </div>
+
+    <!-- Storage Context Menu -->
+    <div id="storageContextMenu" class="context-menu">
+        <div id="storageCtxViewBtn" onclick="viewStorageFileFromCtx()"><img src="img-icon/file-icon/file.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> View File</div>
+        <div onclick="openStorageFileLocation()"><img src="img-icon/file-icon/folder.png" style="width:24px; height:24px; vertical-align:middle;" referrerPolicy="no-referrer" /> Open Location</div>
     </div>
     <?php endif; ?>
 

@@ -139,6 +139,11 @@ let storageLimit = `100 GB`; // This is only for txt display. Make sure it is sy
 
 const viewableExts = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'mp4', 'webm', 'ogg', 'mp3', 'wav', 'pdf', 'txt', 'html', 'css', 'php', 'js', 'xlsx', 'xls'];
 
+let selectedStoragePath = "";
+let selectedStorageName = "";
+let selectedStorageIsViewable = false;
+let allStorageFiles = [];
+
 const FILE_TYPE_ICONS = {
     'zip': 'img-icon/file-icon/zip.png',
     'rar': 'img-icon/file-icon/rar.png',
@@ -252,6 +257,7 @@ function showStorageView() {
 
     storagePage = 1;
     storageHasMore = true;
+    allStorageFiles = [];
     const list = document.getElementById('storageFileList');
     if (list) list.innerHTML = '';
     fetchStorageData();
@@ -596,6 +602,8 @@ async function fetchStorageData() {
             renderStorageChart(data);
         }
 
+        allStorageFiles = allStorageFiles.concat(data.files);
+
         renderStorageFileList(data.files);
         storageHasMore = data.hasMore;
         storagePage++;
@@ -662,6 +670,15 @@ function renderStorageFileList(files) {
         item.style.padding = '12px 16px';
         item.style.borderBottom = '1px solid #eee';
         item.style.alignItems = 'center';
+
+        const isViewable = viewableExts.includes(file.type.toLowerCase());
+        if (isViewable) {
+            item.style.cursor = 'pointer';
+            item.title = 'Double click to view, right-click for options';
+        } else {
+            item.title = 'Right-click for options';
+        }
+
         item.innerHTML = `
             <div class="storage-file-name" title="${escapeHtml(file.path)}" style="display: flex; align-items: center; gap: 12px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                 <span style="color: #666; font-size: 1.2rem;">${getFileIcon(file)}</span>
@@ -669,8 +686,101 @@ function renderStorageFileList(files) {
             </div>
             <div class="storage-file-size" style="text-align: right; color: #666; font-size: 0.9rem;">${file.size_f}</div>
         `;
+
+        let lastStorageClickTime = 0;
+        let lastStorageClickPath = null;
+
+        item.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            // Close any open context menus
+            const mainCtxMenu = document.getElementById('contextMenu');
+            if (mainCtxMenu) mainCtxMenu.style.display = 'none';
+            const storageMenu = document.getElementById('storageContextMenu');
+            if (storageMenu) storageMenu.style.display = 'none';
+
+            const now = Date.now();
+            const isDoubleClick = (file.path === lastStorageClickPath && (now - lastStorageClickTime) < 300);
+
+            // Highlight row
+            document.querySelectorAll('.storage-file-item').forEach(el => el.classList.remove('active-row'));
+            item.classList.add('active-row');
+
+            if (isDoubleClick) {
+                lastStorageClickTime = 0;
+                lastStorageClickPath = null;
+                if (isViewable) {
+                    openStorageMediaViewer(file.path);
+                }
+            } else {
+                lastStorageClickTime = now;
+                lastStorageClickPath = file.path;
+            }
+        });
+
+        item.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            // Highlight row
+            document.querySelectorAll('.storage-file-item').forEach(el => el.classList.remove('active-row'));
+            item.classList.add('active-row');
+
+            // Close other breadcrumbs
+            const desktopBreadcrumb = document.getElementById("desktop-breadcrumb-dropdown-content");
+            if (desktopBreadcrumb) desktopBreadcrumb.classList.remove("show");
+            const mobileBreadcrumb = document.getElementById("mobile-breadcrumb-dropdown-content");
+            if (mobileBreadcrumb) mobileBreadcrumb.classList.remove("show");
+
+            // Close other context menus
+            const mainCtxMenu = document.getElementById('contextMenu');
+            if (mainCtxMenu) mainCtxMenu.style.display = 'none';
+
+            selectedStoragePath = file.path;
+            selectedStorageName = file.name;
+            selectedStorageIsViewable = isViewable;
+
+            const menu = document.getElementById('storageContextMenu');
+            if (menu) {
+                const viewBtn = document.getElementById('storageCtxViewBtn');
+                if (viewBtn) {
+                    viewBtn.style.display = isViewable ? 'flex' : 'none';
+                }
+
+                let x = e.pageX, y = e.pageY;
+                if (x + 200 > window.innerWidth) x -= 200;
+                if (y + 150 > window.innerHeight) y -= 150;
+
+                menu.style.left = x + 'px';
+                menu.style.top = y + 'px';
+                menu.style.display = 'block';
+            }
+        });
+
         list.appendChild(item);
     });
+}
+
+function openStorageMediaViewer(path) {
+    const item = allStorageFiles.find(i => i.path === path);
+    if (!item) return;
+    mediaItems = allStorageFiles.filter(i => viewableExts.includes(i.type.toLowerCase()));
+    currentMediaIndex = mediaItems.findIndex(i => i.path === path);
+    if (currentMediaIndex === -1) return;
+    loadMedia();
+    openModal('mediaModal');
+}
+
+function viewStorageFileFromCtx() {
+    if (selectedStoragePath && selectedStorageIsViewable) {
+        openStorageMediaViewer(selectedStoragePath);
+    }
+}
+
+function openStorageFileLocation() {
+    if (!selectedStoragePath) return;
+    const parentDir = selectedStoragePath.substring(0, selectedStoragePath.lastIndexOf('/'));
+    fetchExplorer(parentDir, '', 1);
 }
 
 
@@ -1678,16 +1788,20 @@ function openModal(id) {
 function closeModal(id) { 
     const m = document.getElementById(id); if (!m) return;
     m.classList.remove('active'); 
+    if (id === 'mediaModal') {
+        const container = document.getElementById('mediaContainer');
+        if (container) {
+            const media = container.querySelectorAll('audio, video');
+            media.forEach(el => {
+                try { el.pause(); } catch(e) {}
+            });
+            container.innerHTML = '';
+        }
+        currentPdfDoc = null;
+        videoRotation = 0;
+    }
     setTimeout(() => {
         m.style.display = 'none';
-        if (id === 'mediaModal') {
-            const container = document.getElementById('mediaContainer');
-            const media = container.querySelector('audio, video');
-            if (media) media.pause();
-            container.innerHTML = '';
-            currentPdfDoc = null;
-            videoRotation = 0;
-        }
     }, 300); 
 }
 
@@ -1849,6 +1963,8 @@ function handleContextMenu(e, el) {
     }
     
     selectedPath = el.dataset.path; selectedName = el.dataset.name; 
+    const storageMenu = document.getElementById('storageContextMenu');
+    if (storageMenu) storageMenu.style.display = 'none';
     const menu = document.getElementById('contextMenu'); 
     let x = e.pageX, y = e.pageY;
     if (x + 200 > window.innerWidth) x -= 200;
@@ -1864,6 +1980,14 @@ document.addEventListener('click', () => {
             if (!checkbox || !checkbox.checked) {
                 row.classList.remove('active-row');
             }
+        });
+    }
+
+    const storageMenu = document.getElementById('storageContextMenu');
+    if (storageMenu && storageMenu.style.display === 'block') {
+        storageMenu.style.display = 'none';
+        document.querySelectorAll('.storage-file-item').forEach(row => {
+            row.classList.remove('active-row');
         });
     }
 });
@@ -2343,21 +2467,6 @@ function navigateMedia(d) {
     } else {
         currentMediaIndex = (currentMediaIndex + d + mediaItems.length) % mediaItems.length;
         loadMedia();
-    }
-}
-function openModal(id) {
-    const m = document.getElementById(id);
-    if (m) m.classList.add('active');
-}
-
-function closeModal(id) {
-    const m = document.getElementById(id);
-    if (m) m.classList.remove('active');
-    if (id === 'mediaModal') {
-        const audio = document.getElementById('mainAudio');
-        if (audio) {
-            audio.pause();
-        }
     }
 }
 
