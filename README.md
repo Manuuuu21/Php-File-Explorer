@@ -3,6 +3,9 @@
 ## Overview
 A Material Design 3-based web file management system with cinematic UI, built with PHP backend and JavaScript frontend. It provides both secure admin access and shareable links for collaboration.
 
+If you have a web server running on your phone, you can use it as a file explorer to transfer files from your phone to your computer by accessing the link provided by your phone’s web server.
+
+I’m using this app to transfer files between my phone and computer.
 ---
 
 ## Core Features
